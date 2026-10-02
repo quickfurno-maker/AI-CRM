@@ -2937,7 +2937,7 @@ describe('Phase 1 SaaS foundation', () => {
       )
       .set(authP)
       .send({
-        occurredAt: `${today}T10:00:00+05:30`,
+        occurredAt: `${today}T00:00:00+05:30`,
       })
       .expect(201);
     expect(managerCheckIn.body.event.locationValidation).toBe(
@@ -2950,7 +2950,7 @@ describe('Phase 1 SaaS foundation', () => {
       )
       .set(authP)
       .send({
-        occurredAt: `${today}T11:00:00+05:30`,
+        occurredAt: `${today}T00:01:00+05:30`,
       })
       .expect(201);
     expect(managerCheckOut.body.event.locationValidation).toBe(
