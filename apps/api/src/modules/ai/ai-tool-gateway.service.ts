@@ -672,6 +672,182 @@ export class AiToolGatewayService {
       );
     }
 
+    if (toolKey === 'compare_properties') {
+      const parsedArgs = toolSchemas.compare_properties.parse(args);
+      return this.realEstate.compareProperties(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        [...new Set(parsedArgs.unitIds)],
+      );
+    }
+
+    if (toolKey === 'create_requirement') {
+      const parsedArgs = toolSchemas.create_requirement.parse(args);
+      const contactId = parsedArgs.contactId ?? context.contactId ?? undefined;
+      if (!contactId) {
+        throw new ForbiddenException(
+          'Buyer requirement creation requires a tenant CRM contact context.',
+        );
+      }
+      return this.realEstate.createRequirement(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        {
+          workspaceId: context.workspaceId,
+          contactId,
+          leadId: parsedArgs.leadId,
+          ownerMemberId: context.principal.membershipId,
+          purpose: parsedArgs.purpose,
+          cities: parsedArgs.cities,
+          localities: parsedArgs.localities,
+          propertyTypes: parsedArgs.propertyTypes,
+          configurations: parsedArgs.configurations,
+          minBudget:
+            parsedArgs.minBudget === undefined
+              ? undefined
+              : String(parsedArgs.minBudget),
+          maxBudget:
+            parsedArgs.maxBudget === undefined
+              ? undefined
+              : String(parsedArgs.maxBudget),
+          currency: parsedArgs.currency?.toUpperCase(),
+          minCarpetArea:
+            parsedArgs.minCarpetArea === undefined
+              ? undefined
+              : String(parsedArgs.minCarpetArea),
+          maxCarpetArea:
+            parsedArgs.maxCarpetArea === undefined
+              ? undefined
+              : String(parsedArgs.maxCarpetArea),
+          purchaseTimeline: parsedArgs.purchaseTimeline,
+          possessionPreference: parsedArgs.possessionPreference,
+          mustHaveAmenities: parsedArgs.mustHaveAmenities,
+          notes: parsedArgs.notes,
+        },
+      );
+    }
+
+    if (toolKey === 'send_property') {
+      const parsedArgs = toolSchemas.send_property.parse(args);
+      const conversationId =
+        parsedArgs.conversationId ?? context.conversationId ?? undefined;
+      if (!conversationId) {
+        throw new ForbiddenException(
+          'Property sending requires an active tenant WhatsApp conversation.',
+        );
+      }
+
+      const unitIds = [...new Set(parsedArgs.unitIds)];
+      const propertyRows = await Promise.all(
+        unitIds.map(async (unitId) => {
+          const unit = await this.realEstate.getUnit(
+            {
+              ...context.principal,
+              actorType: 'AI_AGENT',
+              actorId: context.agentId,
+            },
+            unitId,
+          );
+          const project = unit.projectId
+            ? await this.realEstate.getProject(
+                {
+                  ...context.principal,
+                  actorType: 'AI_AGENT',
+                  actorId: context.agentId,
+                },
+                unit.projectId,
+              )
+            : undefined;
+          return { unit, project };
+        }),
+      );
+
+      const text = this.propertyMessage(
+        propertyRows,
+        parsedArgs.intro,
+      );
+      const outbound = await this.communication.sendAgentText({
+        organizationId: context.principal.organizationId,
+        conversationId,
+        agentId: context.agentId,
+        runId: context.runId,
+        text,
+        idempotencyKey:
+          'ai-tool:' +
+          context.runId +
+          ':send-property:' +
+          unitIds.join(','),
+      });
+      return {
+        messageId: outbound.id,
+        conversationId,
+        unitIds,
+      };
+    }
+
+    if (toolKey === 'follow_up_buyer') {
+      const parsedArgs = toolSchemas.follow_up_buyer.parse(args);
+      const conversationId =
+        parsedArgs.conversationId ?? context.conversationId ?? undefined;
+      if (!conversationId) {
+        throw new ForbiddenException(
+          'Buyer follow-up requires an active tenant WhatsApp conversation.',
+        );
+      }
+      const outbound = await this.communication.sendAgentText({
+        organizationId: context.principal.organizationId,
+        conversationId,
+        agentId: context.agentId,
+        runId: context.runId,
+        text: parsedArgs.text,
+        idempotencyKey:
+          'ai-tool:' + context.runId + ':buyer-follow-up',
+      });
+      return {
+        messageId: outbound.id,
+        conversationId,
+      };
+    }
+
+    if (toolKey === 'create_booking') {
+      const parsedArgs = toolSchemas.create_booking.parse(args);
+      const contactId = parsedArgs.contactId ?? context.contactId ?? undefined;
+      if (!contactId) {
+        throw new ForbiddenException(
+          'Booking creation requires a tenant CRM contact context.',
+        );
+      }
+      return this.realEstate.createBooking(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        {
+          workspaceId: context.workspaceId,
+          contactId,
+          requirementId: parsedArgs.requirementId,
+          dealId: parsedArgs.dealId,
+          offerId: parsedArgs.offerId,
+          unitId: parsedArgs.unitId,
+          brokerId: parsedArgs.brokerId,
+          bookingAmount:
+            parsedArgs.bookingAmount === undefined
+              ? undefined
+              : String(parsedArgs.bookingAmount),
+          currency: parsedArgs.currency?.toUpperCase(),
+          externalReference: parsedArgs.externalReference,
+          notes: parsedArgs.notes,
+        },
+      );
+    }
+
     if (toolKey === 'schedule_site_visit') {
       const parsedArgs = toolSchemas.schedule_site_visit.parse(args);
       const contactId = parsedArgs.contactId ?? context.contactId ?? undefined;
@@ -703,6 +879,49 @@ export class AiToolGatewayService {
 
     throw new NotFoundException('AI tool handler not found.');
   }
+  private propertyMessage(
+    rows: Array<{
+      unit: Awaited<ReturnType<RealEstateService['getUnit']>>;
+      project?: Awaited<ReturnType<RealEstateService['getProject']>>;
+    }>,
+    intro?: string,
+  ) {
+    const sections = rows.map(({ unit, project }, index) => {
+      const place = [
+        unit.locality ?? project?.locality,
+        unit.city ?? project?.city,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      const amount =
+        unit.price === null
+          ? 'Price on request'
+          : `${unit.currency} ${Number(unit.price).toLocaleString('en-IN')}`;
+      const area =
+        unit.carpetArea === null
+          ? undefined
+          : `${Number(unit.carpetArea).toLocaleString('en-IN')} ${unit.areaUnit} carpet`;
+      return [
+        `${index + 1}. ${unit.title}`,
+        project?.name ? `Project: ${project.name}` : undefined,
+        place ? `Location: ${place}` : undefined,
+        unit.configuration
+          ? `Configuration: ${unit.configuration}`
+          : undefined,
+        area ? `Area: ${area}` : undefined,
+        `Price: ${amount}`,
+        `Availability: ${unit.inventoryStatus}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+    });
+
+    return [
+      intro?.trim() || 'Here are the property details:',
+      ...sections,
+    ].join('\n\n');
+  }
+
   private async assertTenantRecord(
     table: typeof contacts | typeof leads | typeof deals,
     organizationId: string,
