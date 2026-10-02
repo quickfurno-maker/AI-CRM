@@ -301,6 +301,7 @@ export const subscriptions = pgTable(
     billingCycle: varchar('billing_cycle', { length: 16 })
       .default('MONTHLY')
       .notNull(),
+    currency: varchar('currency', { length: 3 }).default('INR').notNull(),
     provider: varchar('provider', { length: 64 }),
     providerCustomerId: varchar('provider_customer_id', { length: 160 }),
     providerSubscriptionId: varchar('provider_subscription_id', { length: 180 }),
