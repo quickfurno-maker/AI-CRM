@@ -141,6 +141,127 @@ const TOOLS = [
     },
   },
   {
+    key: 'compare_properties',
+    name: 'Compare Real Estate Properties',
+    description:
+      'Compare 2–5 real tenant inventory units side by side using canonical property data. This is read-only and does not rank outside the supplied factual attributes.',
+    riskLevel: 'L0',
+    handlerKey: 'realestate.compare_properties',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        unitIds: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          minItems: 2,
+          maxItems: 5,
+          uniqueItems: true,
+        },
+      },
+      required: ['unitIds'],
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'create_requirement',
+    name: 'Create Buyer Requirement',
+    description:
+      'Create a governed Real Estate buyer requirement from explicit client criteria and link it to the tenant CRM contact.',
+    riskLevel: 'L1',
+    handlerKey: 'realestate.create_requirement',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contactId: { type: 'string', format: 'uuid' },
+        leadId: { type: 'string', format: 'uuid' },
+        purpose: {
+          type: 'string',
+          enum: ['SELF_USE', 'INVESTMENT', 'RENTAL', 'OTHER'],
+        },
+        cities: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        localities: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+        propertyTypes: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        configurations: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        minBudget: { type: 'number', minimum: 0 },
+        maxBudget: { type: 'number', minimum: 0 },
+        currency: { type: 'string', minLength: 3, maxLength: 3 },
+        minCarpetArea: { type: 'number', minimum: 0 },
+        maxCarpetArea: { type: 'number', minimum: 0 },
+        purchaseTimeline: { type: 'string', maxLength: 80 },
+        possessionPreference: { type: 'string', maxLength: 80 },
+        mustHaveAmenities: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+        notes: { type: 'string', maxLength: 10000 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'send_property',
+    name: 'Send Property Details',
+    description:
+      'Send factual details for 1–5 selected tenant inventory units to the active WhatsApp client conversation. Inherits WhatsApp service-window and channel-policy checks.',
+    riskLevel: 'L2',
+    handlerKey: 'realestate.send_property',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', format: 'uuid' },
+        unitIds: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          minItems: 1,
+          maxItems: 5,
+          uniqueItems: true,
+        },
+        intro: { type: 'string', maxLength: 500 },
+      },
+      required: ['unitIds'],
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'follow_up_buyer',
+    name: 'Follow Up Buyer',
+    description:
+      'Send a bounded follow-up message to the active buyer WhatsApp conversation. The communication layer enforces channel state and the Meta service window.',
+    riskLevel: 'L2',
+    handlerKey: 'realestate.follow_up_buyer',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', format: 'uuid' },
+        text: { type: 'string', minLength: 1, maxLength: 1500 },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'create_booking',
+    name: 'Create Real Estate Booking',
+    description:
+      'Reserve an available unit by creating the canonical Real Estate booking. This is financially and inventory sensitive and always requires human approval.',
+    riskLevel: 'L3',
+    handlerKey: 'realestate.create_booking',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contactId: { type: 'string', format: 'uuid' },
+        requirementId: { type: 'string', format: 'uuid' },
+        dealId: { type: 'string', format: 'uuid' },
+        offerId: { type: 'string', format: 'uuid' },
+        unitId: { type: 'string', format: 'uuid' },
+        brokerId: { type: 'string', format: 'uuid' },
+        bookingAmount: { type: 'number', minimum: 0 },
+        currency: { type: 'string', minLength: 3, maxLength: 3 },
+        externalReference: { type: 'string', maxLength: 160 },
+        notes: { type: 'string', maxLength: 4000 },
+      },
+      required: ['unitId'],
+      additionalProperties: false,
+    },
+  },
+  {
     key: 'get_business_analytics',
     name: 'Get Business Analytics',
     description:
