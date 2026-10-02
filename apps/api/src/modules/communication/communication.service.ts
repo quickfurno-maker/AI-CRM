@@ -509,6 +509,7 @@ export class CommunicationService {
     agentId: string;
     runId: string;
     text: string;
+    idempotencyKey?: string;
   }) {
     const rows = await this.database.db
       .select({
@@ -558,7 +559,8 @@ export class CommunicationService {
       );
     }
 
-    const idempotencyKey = 'ai-run:' + input.runId;
+    const idempotencyKey =
+      input.idempotencyKey ?? 'ai-run:' + input.runId;
     const existing = await this.database.db
       .select()
       .from(messages)
