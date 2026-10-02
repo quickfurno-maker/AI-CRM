@@ -87,6 +87,15 @@ export class CreatePlanCheckoutDto {
   @IsString() @MinLength(8) @MaxLength(180) idempotencyKey: string;
 }
 
+export class SchedulePlanChangeDto {
+  @IsUUID() planPriceId: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
+}
+
+export class StartTrialDto {
+  @IsUUID() planPriceId: string;
+}
+
 export class CreateAddonCheckoutDto {
   @IsUUID() addonPriceId: string;
   @IsInt() @Min(1) @Max(10000) quantity: number;
