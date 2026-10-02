@@ -18350,6 +18350,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "staff_profile_id": {
+          "name": "staff_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -18442,6 +18448,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "attendance_employees_staff_profile_uq": {
+          "name": "attendance_employees_staff_profile_uq",
+          "columns": [
+            {
+              "expression": "staff_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -18516,6 +18537,19 @@
           "tableTo": "organization_members",
           "columnsFrom": [
             "manager_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "attendance_employees_staff_profile_id_staff_profiles_id_fk": {
+          "name": "attendance_employees_staff_profile_id_staff_profiles_id_fk",
+          "tableFrom": "attendance_employees",
+          "tableTo": "staff_profiles",
+          "columnsFrom": [
+            "staff_profile_id"
           ],
           "columnsTo": [
             "id"
