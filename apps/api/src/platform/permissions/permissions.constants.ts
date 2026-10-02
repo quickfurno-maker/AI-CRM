@@ -61,4 +61,11 @@ export const CORE_PERMISSIONS = [
   { key: 'ai.usage.read', description: 'Read AI usage, cost and evaluation telemetry.' },
   { key: 'ai.whatsapp.read', description: 'Read AI WhatsApp bindings, jobs and suggestions.' },
   { key: 'ai.whatsapp.manage', description: 'Configure AI WhatsApp handling and send approved AI-assist suggestions.' },
+
+  { key: 'automation.workflow.read', description: 'Read automation workflows, versions and runs.' },
+  { key: 'automation.workflow.manage', description: 'Create, edit, version and activate automation workflows.' },
+  { key: 'automation.run.trigger', description: 'Start permitted automation runs manually.' },
+  { key: 'automation.run.manage', description: 'Inspect and manage automation runtime state.' },
+  { key: 'automation.approval.read', description: 'Read automation approval requests.' },
+  { key: 'automation.approval.decide', description: 'Approve or reject paused automation actions.' },
 ] as const;

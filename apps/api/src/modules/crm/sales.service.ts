@@ -214,8 +214,8 @@ export class SalesService {
       await tx.insert(auditLogs).values({
         organizationId: principal.organizationId,
         workspaceId: lead.workspaceId,
-        actorType: 'USER',
-        actorId: principal.userId,
+        actorType: principal.actorType ?? 'USER',
+        actorId: principal.actorId ?? principal.userId,
         action: stageChanged ? 'crm.lead.stage_change' : 'crm.lead.update',
         resourceType: 'lead',
         resourceId: lead.id,

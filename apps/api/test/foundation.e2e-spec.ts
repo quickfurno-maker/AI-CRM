@@ -1245,4 +1245,331 @@ describe('Phase 1 SaaS foundation', () => {
       ).length,
     ).toBeGreaterThanOrEqual(2);
   });
+
+  it('executes versioned automations with branching waits approvals and idempotent events', async () => {
+    const tenantI = await register({
+      email: 'automation-i@example.com',
+      organizationName: 'Automation Tenant I',
+      organizationSlug: 'automation-tenant-i',
+    });
+    const tenantJ = await register({
+      email: 'automation-j@example.com',
+      organizationName: 'Automation Tenant J',
+      organizationSlug: 'automation-tenant-j',
+    });
+    const authI = {
+      authorization: `Bearer ${tenantI.tokens.accessToken}`,
+    };
+    const authJ = {
+      authorization: `Bearer ${tenantJ.tokens.accessToken}`,
+    };
+
+    const manualWorkflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authI)
+      .send({
+        key: 'qualified-follow-up',
+        name: 'Qualified Follow Up',
+        triggerType: 'MANUAL',
+        triggerConfig: {},
+      })
+      .expect(201);
+
+    const manualWorkflowId = manualWorkflow.body.workflow.id as string;
+    const manualVersionId = manualWorkflow.body.version.id as string;
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${manualWorkflowId}/versions/${manualVersionId}/graph`,
+      )
+      .set(authI)
+      .send({
+        startNodeKey: 'score_gate',
+        nodes: [
+          {
+            nodeKey: 'score_gate',
+            nodeType: 'CONDITION',
+            name: 'Qualified score?',
+            config: {
+              path: 'input.score',
+              operator: 'GTE',
+              value: 50,
+            },
+          },
+          {
+            nodeKey: 'wait_short',
+            nodeType: 'WAIT',
+            name: 'Short wait',
+            config: { durationSeconds: 1 },
+          },
+          {
+            nodeKey: 'create_task',
+            nodeType: 'ACTION',
+            name: 'Create follow up',
+            config: {
+              action: 'CRM_CREATE_TASK',
+              input: {
+                title: 'Follow up {{input.name}}',
+                description: 'Created by automation run {{automation.runId}}',
+                priority: 'HIGH',
+              },
+            },
+          },
+          {
+            nodeKey: 'human_gate',
+            nodeType: 'APPROVAL',
+            name: 'Human approval',
+            config: {
+              title: 'Approve qualified lead follow-up',
+              description: 'Confirm the nurture path can continue.',
+              expirySeconds: 3600,
+            },
+          },
+          {
+            nodeKey: 'approved_end',
+            nodeType: 'END',
+            name: 'Approved',
+            config: {},
+          },
+          {
+            nodeKey: 'rejected_end',
+            nodeType: 'END',
+            name: 'Rejected or not qualified',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'score_true',
+            sourceNodeKey: 'score_gate',
+            targetNodeKey: 'wait_short',
+            branchKey: 'TRUE',
+          },
+          {
+            edgeKey: 'score_false',
+            sourceNodeKey: 'score_gate',
+            targetNodeKey: 'rejected_end',
+            branchKey: 'FALSE',
+          },
+          {
+            edgeKey: 'wait_to_task',
+            sourceNodeKey: 'wait_short',
+            targetNodeKey: 'create_task',
+          },
+          {
+            edgeKey: 'task_to_approval',
+            sourceNodeKey: 'create_task',
+            targetNodeKey: 'human_gate',
+          },
+          {
+            edgeKey: 'approval_yes',
+            sourceNodeKey: 'human_gate',
+            targetNodeKey: 'approved_end',
+            branchKey: 'APPROVED',
+          },
+          {
+            edgeKey: 'approval_no',
+            sourceNodeKey: 'human_gate',
+            targetNodeKey: 'rejected_end',
+            branchKey: 'REJECTED',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${manualWorkflowId}/versions/${manualVersionId}/activate`,
+      )
+      .set(authI)
+      .expect(201);
+
+    const started = await request(app.getHttpServer())
+      .post(`/v1/automation/workflows/${manualWorkflowId}/trigger`)
+      .set(authI)
+      .send({
+        context: {
+          score: 82,
+          name: 'Automation Client',
+        },
+        correlationId: 'automation-manual-1',
+      })
+      .expect(201);
+
+    expect(started.body.run.status).toBe('WAITING');
+    const waitingRunId = started.body.run.id as string;
+
+    await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${waitingRunId}/resume`)
+      .set(authI)
+      .expect(409);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const waitingApproval = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${waitingRunId}/resume`)
+      .set(authI)
+      .expect(201);
+    expect(waitingApproval.body.run.status).toBe('WAITING_APPROVAL');
+
+    const tasksAfterAction = await request(app.getHttpServer())
+      .get('/v1/crm/tasks')
+      .set(authI)
+      .expect(200);
+    expect(
+      tasksAfterAction.body.some(
+        (item: { title: string }) =>
+          item.title === 'Follow up Automation Client',
+      ),
+    ).toBe(true);
+
+    const approvals = await request(app.getHttpServer())
+      .get('/v1/automation/approvals')
+      .set(authI)
+      .expect(200);
+    const approval = approvals.body.find(
+      (item: { runId: string; status: string }) =>
+        item.runId === waitingRunId && item.status === 'PENDING',
+    );
+    expect(approval).toBeTruthy();
+
+    const completed = await request(app.getHttpServer())
+      .post(
+        `/v1/automation/approvals/${approval.id as string}/decision`,
+      )
+      .set(authI)
+      .send({
+        status: 'APPROVED',
+        reason: 'Validated by owner.',
+      })
+      .expect(201);
+    expect(completed.body.run.status).toBe('COMPLETED');
+
+    const falseBranch = await request(app.getHttpServer())
+      .post(`/v1/automation/workflows/${manualWorkflowId}/trigger`)
+      .set(authI)
+      .send({
+        context: {
+          score: 10,
+          name: 'Low Score Client',
+        },
+      })
+      .expect(201);
+    expect(falseBranch.body.run.status).toBe('COMPLETED');
+
+    const tasksAfterFalseBranch = await request(app.getHttpServer())
+      .get('/v1/crm/tasks')
+      .set(authI)
+      .expect(200);
+    expect(
+      tasksAfterFalseBranch.body.filter(
+        (item: { title: string }) =>
+          item.title === 'Follow up Low Score Client',
+      ),
+    ).toHaveLength(0);
+
+    const eventWorkflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authI)
+      .send({
+        key: 'event-follow-up',
+        name: 'Event Follow Up',
+        triggerType: 'EVENT',
+        triggerConfig: {
+          eventTypes: ['crm.test.event.v1'],
+        },
+      })
+      .expect(201);
+
+    const eventWorkflowId = eventWorkflow.body.workflow.id as string;
+    const eventVersionId = eventWorkflow.body.version.id as string;
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${eventWorkflowId}/versions/${eventVersionId}/graph`,
+      )
+      .set(authI)
+      .send({
+        startNodeKey: 'event_task',
+        nodes: [
+          {
+            nodeKey: 'event_task',
+            nodeType: 'ACTION',
+            name: 'Create event task',
+            config: {
+              action: 'CRM_CREATE_TASK',
+              input: {
+                title: 'Event {{event.payload.name}}',
+                priority: 'NORMAL',
+              },
+            },
+          },
+          {
+            nodeKey: 'event_end',
+            nodeType: 'END',
+            name: 'Done',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'event_task_end',
+            sourceNodeKey: 'event_task',
+            targetNodeKey: 'event_end',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${eventWorkflowId}/versions/${eventVersionId}/activate`,
+      )
+      .set(authI)
+      .expect(201);
+
+    const testEvent = {
+      eventId: 'event-idempotency-1',
+      eventType: 'crm.test.event.v1',
+      aggregateType: 'contact',
+      aggregateId: 'external-test-contact',
+      payload: { name: 'Triggered Client' },
+    };
+
+    const firstEvent = await request(app.getHttpServer())
+      .post('/v1/automation/events/process')
+      .set(authI)
+      .send(testEvent)
+      .expect(201);
+    expect(firstEvent.body[0]?.status).toBe('STARTED');
+
+    const duplicateEvent = await request(app.getHttpServer())
+      .post('/v1/automation/events/process')
+      .set(authI)
+      .send(testEvent)
+      .expect(201);
+    expect(duplicateEvent.body[0]?.status).toBe('DUPLICATE');
+
+    const finalTasks = await request(app.getHttpServer())
+      .get('/v1/crm/tasks')
+      .set(authI)
+      .expect(200);
+    expect(
+      finalTasks.body.filter(
+        (item: { title: string }) =>
+          item.title === 'Event Triggered Client',
+      ),
+    ).toHaveLength(1);
+
+    const otherTenantWorkflows = await request(app.getHttpServer())
+      .get('/v1/automation/workflows')
+      .set(authJ)
+      .expect(200);
+    expect(otherTenantWorkflows.body).toHaveLength(0);
+
+    await request(app.getHttpServer())
+      .get(`/v1/automation/runs/${waitingRunId}`)
+      .set(authJ)
+      .expect(404);
+  });
 });

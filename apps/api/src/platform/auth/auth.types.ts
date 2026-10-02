@@ -4,6 +4,8 @@ export type Principal = {
   membershipId: string;
   sessionId: string;
   isPlatformAdmin: boolean;
+  actorType?: 'USER' | 'AI_AGENT' | 'AUTOMATION' | 'SYSTEM' | 'API' | 'INTEGRATION';
+  actorId?: string;
 };
 
 export type AccessTokenPayload = {

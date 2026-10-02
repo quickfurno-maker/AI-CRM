@@ -94,8 +94,8 @@ export class EngagementService {
       await tx.insert(auditLogs).values({
         organizationId: principal.organizationId,
         workspaceId,
-        actorType: 'USER',
-        actorId: principal.userId,
+        actorType: principal.actorType ?? 'USER',
+        actorId: principal.actorId ?? principal.userId,
         action: 'crm.task.create',
         resourceType: 'task',
         resourceId: task.id,

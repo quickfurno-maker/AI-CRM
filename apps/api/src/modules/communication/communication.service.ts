@@ -350,8 +350,8 @@ export class CommunicationService {
       await tx.insert(auditLogs).values({
         organizationId: principal.organizationId,
         workspaceId: conversation.workspaceId,
-        actorType: 'USER',
-        actorId: principal.userId,
+        actorType: principal.actorType ?? 'USER',
+        actorId: principal.actorId ?? principal.userId,
         action: 'communication.conversation.update',
         resourceType: 'conversation',
         resourceId: id,

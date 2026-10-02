@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AiModule } from './modules/ai/ai.module.js';
+import { AutomationModule } from './modules/automation/automation.module.js';
 import { CommunicationModule } from './modules/communication/communication.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
 import { HealthModule } from './modules/health/health.module.js';
@@ -36,6 +37,7 @@ import { PermissionsModule } from './platform/permissions/permissions.module.js'
     CrmModule,
     CommunicationModule,
     AiModule,
+    AutomationModule,
     OrganizationsModule,
     PlatformAdminModule,
   ],

@@ -32,6 +32,10 @@ const schema = z
     EVENT_STREAM: z.string().default('crm-ai:events'),
     AI_WHATSAPP_EVENT_CONSUMER_ENABLED: z.coerce.boolean().default(false),
     AI_WHATSAPP_CONSUMER_GROUP: z.string().default('crm-ai:ai-whatsapp'),
+    AUTOMATION_EVENT_CONSUMER_ENABLED: z.coerce.boolean().default(false),
+    AUTOMATION_CONSUMER_GROUP: z.string().default('crm-ai:automation'),
+    AUTOMATION_SCHEDULER_ENABLED: z.coerce.boolean().default(false),
+    AUTOMATION_SCHEDULER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1000),
   })
   .superRefine((env, ctx) => {
     if (

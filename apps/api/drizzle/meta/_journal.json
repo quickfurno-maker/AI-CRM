@@ -43,6 +43,13 @@
       "when": 1790928571799,
       "tag": "0005_sharp_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790929694119,
+      "tag": "0006_sloppy_senator_kelly",
+      "breakpoints": true
     }
   ]
 }

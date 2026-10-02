@@ -17,5 +17,6 @@ import { SalesService } from './sales.service.js';
     CrmProvisioningService,
     CrmReferenceService,
   ],
+  exports: [ContactsService, SalesService, EngagementService],
 })
 export class CrmModule {}
