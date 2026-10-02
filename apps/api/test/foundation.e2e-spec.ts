@@ -1,8 +1,9 @@
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { newDb, DataType } from 'pg-mem';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Pool as PgPool } from 'pg';
@@ -54,6 +55,12 @@ describe('Phase 1 SaaS foundation', () => {
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.JWT_ACCESS_SECRET = 'test-secret-that-is-long-enough-for-phase-one';
+    process.env.META_TRANSPORT_MODE = 'mock';
+    process.env.META_GRAPH_VERSION = 'v99.0';
+    process.env.META_APP_ID = 'test-meta-app';
+    process.env.META_EMBEDDED_SIGNUP_CONFIG_ID = 'test-config';
+    process.env.META_APP_SECRET = 'test-meta-app-secret';
+    process.env.META_WEBHOOK_VERIFY_TOKEN = 'test-webhook-token';
     const memory = newDb({ autoCreateForeignKeyIndices: true });
     memory.public.registerFunction({
       name: 'gen_random_uuid',
@@ -109,12 +116,34 @@ describe('Phase 1 SaaS foundation', () => {
       onModuleDestroy: async () => rawPool.end(),
     };
 
+    const testConfig: Record<string, unknown> = {
+      NODE_ENV: 'test',
+      JWT_ACCESS_SECRET: 'test-secret-that-is-long-enough-for-phase-one',
+      JWT_ACCESS_TTL_SECONDS: 900,
+      META_TRANSPORT_MODE: 'mock',
+      META_GRAPH_VERSION: 'v99.0',
+      META_APP_ID: 'test-meta-app',
+      META_EMBEDDED_SIGNUP_CONFIG_ID: 'test-config',
+      META_APP_SECRET: 'test-meta-app-secret',
+      META_WEBHOOK_VERIFY_TOKEN: 'test-webhook-token',
+    };
+    const configService = {
+      get: (key: string) => testConfig[key],
+      getOrThrow: (key: string) => {
+        const value = testConfig[key];
+        if (value === undefined) throw new Error('Missing test config: ' + key);
+        return value;
+      },
+    };
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DatabaseService)
       .useValue(database)
+      .overrideProvider(ConfigService)
+      .useValue(configService)
       .compile();
 
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('v1');
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
@@ -346,5 +375,373 @@ describe('Phase 1 SaaS foundation', () => {
         priority: 'HIGH',
       })
       .expect(201);
+  });
+
+  it('runs Meta partner onboarding and WhatsApp inbox safely', async () => {
+    const tenant = await register({
+      email: 'whatsapp-owner@example.com',
+      organizationName: 'WhatsApp Tenant',
+      organizationSlug: 'whatsapp-tenant',
+    });
+    const auth = {
+      authorization: `Bearer ${tenant.tokens.accessToken}`,
+    };
+
+    const begin = await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/begin')
+      .set(auth)
+      .send({})
+      .expect(201);
+    expect(begin.body.appId).toBe('test-meta-app');
+    expect(begin.body.configId).toBe('test-config');
+
+    const completed = await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/complete')
+      .set(auth)
+      .send({
+        connectionId: begin.body.connectionId,
+        signupState: begin.body.state,
+        authorizationCode: 'mock-embedded-signup-code',
+        businessPortfolioId: 'business-test-1',
+        wabaId: 'waba-test-1',
+        phoneNumberId: 'phone-number-test-1',
+        displayName: 'WhatsApp Sales',
+        displayAddress: '+91 90000 00001',
+      })
+      .expect(201);
+
+    expect(completed.body.connection.connectionStatus).toBe('CONNECTED');
+    expect(completed.body.connection.clientAssetOwnership).toBe('CLIENT');
+    expect(completed.body.channel.status).toBe('CONNECTED');
+
+    await request(app.getHttpServer())
+      .get(
+        '/v1/webhooks/meta/whatsapp?hub.mode=subscribe&hub.verify_token=test-webhook-token&hub.challenge=12345',
+      )
+      .expect(200)
+      .expect('12345');
+
+    const inboundPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-test-1',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  display_phone_number: '919000000001',
+                  phone_number_id: 'phone-number-test-1',
+                },
+                contacts: [
+                  {
+                    profile: { name: 'Priya Client' },
+                    wa_id: '919811111111',
+                  },
+                ],
+                messages: [
+                  {
+                    from: '919811111111',
+                    id: 'wamid.inbound.1',
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    type: 'text',
+                    text: { body: 'I need a 3 BHK interior quotation' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const inboundRaw = JSON.stringify(inboundPayload);
+    const inboundSignature =
+      'sha256=' +
+      createHmac('sha256', 'test-meta-app-secret')
+        .update(inboundRaw)
+        .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', inboundSignature)
+      .send(inboundRaw)
+      .expect(201);
+
+    // At-least-once Meta delivery must not duplicate the message.
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', inboundSignature)
+      .send(inboundRaw)
+      .expect(201);
+
+    const conversations = await request(app.getHttpServer())
+      .get('/v1/communication/conversations')
+      .set(auth)
+      .expect(200);
+    expect(conversations.body).toHaveLength(1);
+    expect(conversations.body[0]).toMatchObject({
+      contactName: 'Priya Client',
+      contactPhone: '919811111111',
+      handlingMode: 'HUMAN',
+      unreadCount: 1,
+    });
+
+    const conversationId = conversations.body[0].id as string;
+    const inboundMessages = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversationId}/messages`,
+      )
+      .set(auth)
+      .expect(200);
+    expect(inboundMessages.body).toHaveLength(1);
+    expect(inboundMessages.body[0]).toMatchObject({
+      direction: 'INBOUND',
+      externalMessageId: 'wamid.inbound.1',
+      textBody: 'I need a 3 BHK interior quotation',
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/v1/communication/conversations/${conversationId}`)
+      .set(auth)
+      .send({ handlingMode: 'AI_ASSIST' })
+      .expect(200);
+
+    const outbound = await request(app.getHttpServer())
+      .post(
+        `/v1/communication/conversations/${conversationId}/messages/text`,
+      )
+      .set(auth)
+      .send({ text: 'Sure. I can help you with that.' })
+      .expect(201);
+    expect(outbound.body.direction).toBe('OUTBOUND');
+    expect(outbound.body.externalMessageId).toContain('mock.wamid.');
+
+    const template = await request(app.getHttpServer())
+      .post('/v1/communication/templates')
+      .set(auth)
+      .send({
+        channelAccountId: completed.body.channel.id,
+        name: 'follow_up_offer',
+        language: 'en',
+        category: 'MARKETING',
+        components: [
+          {
+            type: 'BODY',
+            text: 'Would you like to continue your enquiry?',
+          },
+        ],
+      })
+      .expect(201);
+
+    const submittedTemplate = await request(app.getHttpServer())
+      .post(
+        `/v1/communication/templates/${template.body.id}/submit`,
+      )
+      .set(auth)
+      .expect(201);
+    expect(submittedTemplate.body.status).toBe('PENDING');
+    expect(submittedTemplate.body.providerTemplateId).toContain(
+      'mock-template-',
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/communication/conversations/${conversationId}/messages/template`,
+      )
+      .set(auth)
+      .send({ templateId: template.body.id })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/communication/contacts/${conversations.body[0].contactId}/consent`,
+      )
+      .set(auth)
+      .send({
+        purpose: 'MARKETING',
+        status: 'GRANTED',
+        source: 'WHATSAPP_INBOUND',
+        proof: { sourceMessageId: 'wamid.inbound.1' },
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/communication/conversations/${conversationId}/messages/template`,
+      )
+      .set(auth)
+      .send({ templateId: template.body.id })
+      .expect(201);
+
+    const templateApprovalPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-test-1',
+          changes: [
+            {
+              field: 'message_template_status_update',
+              value: {
+                message_template_name: 'follow_up_offer',
+                message_template_language: 'en',
+                event: 'APPROVED',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const templateApprovalRaw = JSON.stringify(templateApprovalPayload);
+    const templateApprovalSignature =
+      'sha256=' +
+      createHmac('sha256', 'test-meta-app-secret')
+        .update(templateApprovalRaw)
+        .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', templateApprovalSignature)
+      .send(templateApprovalRaw)
+      .expect(201);
+
+    const approvedTemplates = await request(app.getHttpServer())
+      .get('/v1/communication/templates')
+      .set(auth)
+      .expect(200);
+    expect(
+      approvedTemplates.body.find(
+        (item: { id: string }) => item.id === template.body.id,
+      )?.status,
+    ).toBe('APPROVED');
+
+    const campaign = await request(app.getHttpServer())
+      .post('/v1/communication/campaigns')
+      .set(auth)
+      .send({
+        name: 'October follow-up',
+        channelAccountId: completed.body.channel.id,
+        templateId: template.body.id,
+        audienceFilters: {
+          contactIds: [conversations.body[0].contactId],
+        },
+      })
+      .expect(201);
+
+    const queuedCampaign = await request(app.getHttpServer())
+      .post(
+        `/v1/communication/campaigns/${campaign.body.id}/queue`,
+      )
+      .set(auth)
+      .expect(201);
+    expect(queuedCampaign.body.recipientCount).toBe(1);
+    expect(queuedCampaign.body.campaign.status).toBe('QUEUED');
+
+    const stopPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-test-1',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  phone_number_id: 'phone-number-test-1',
+                },
+                messages: [
+                  {
+                    from: '919811111111',
+                    id: 'wamid.stop.1',
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    type: 'text',
+                    text: { body: 'STOP' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const stopRaw = JSON.stringify(stopPayload);
+    const stopSignature =
+      'sha256=' +
+      createHmac('sha256', 'test-meta-app-secret')
+        .update(stopRaw)
+        .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', stopSignature)
+      .send(stopRaw)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/communication/conversations/${conversationId}/messages/template`,
+      )
+      .set(auth)
+      .send({ templateId: template.body.id })
+      .expect(409);
+
+    const statusPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-test-1',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  phone_number_id: 'phone-number-test-1',
+                },
+                statuses: [
+                  {
+                    id: outbound.body.externalMessageId,
+                    status: 'read',
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    recipient_id: '919811111111',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const statusRaw = JSON.stringify(statusPayload);
+    const statusSignature =
+      'sha256=' +
+      createHmac('sha256', 'test-meta-app-secret')
+        .update(statusRaw)
+        .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', statusSignature)
+      .send(statusRaw)
+      .expect(201);
+
+    const finalMessages = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversationId}/messages`,
+      )
+      .set(auth)
+      .expect(200);
+    expect(
+      finalMessages.body.find(
+        (item: { id: string }) => item.id === outbound.body.id,
+      )?.status,
+    ).toBe('READ');
   });
 });

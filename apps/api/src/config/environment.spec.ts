@@ -16,4 +16,13 @@ describe('environment validation', () => {
       }),
     ).toThrow();
   });
+
+  it('requires the full provider configuration for live Meta transport', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        META_TRANSPORT_MODE: 'live',
+      }),
+    ).toThrow();
+  });
 });

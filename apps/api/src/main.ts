@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
   const express = app.getHttpAdapter().getInstance();
   express.set('trust proxy', 1);

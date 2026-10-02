@@ -31,7 +31,7 @@ type SessionData = {
 const nav = [
   { label: 'Command Center', href: '/dashboard', active: true },
   { label: 'CRM', href: '/crm', active: false },
-  { label: 'Inbox' },
+  { label: 'WhatsApp', href: '/whatsapp', active: false },
   { label: 'AI Agents' },
   { label: 'Automations' },
   { label: 'Attendance' },

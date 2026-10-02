@@ -1,5 +1,9 @@
 import { Redis } from 'ioredis';
 import { Pool } from 'pg';
+import {
+  dispatchCampaignJob,
+  type CampaignRecipientJob,
+} from './campaign-dispatch.js';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -36,6 +40,94 @@ async function resetStaleClaims() {
     where status = 'PROCESSING'
       and processing_started_at < now() - interval '5 minutes'
   `);
+}
+
+async function resetStaleCampaignClaims() {
+  const stale = await pool.query<{ campaign_id: string }>(`
+    update communication_campaign_recipients
+    set status = 'UNKNOWN',
+        processing_started_at = null,
+        failure_reason = coalesce(
+          failure_reason,
+          'Worker stopped after provider dispatch began; manual reconciliation required.'
+        ),
+        updated_at = now()
+    where status = 'PROCESSING'
+      and processing_started_at < now() - interval '5 minutes'
+    returning campaign_id
+  `);
+
+  if (stale.rows.length) {
+    const ids = [...new Set(stale.rows.map((row) => row.campaign_id))];
+    await pool.query(
+      `update communication_campaigns
+       set status = 'ACTION_REQUIRED', updated_at = now()
+       where id = any($1::uuid[])`,
+      [ids],
+    );
+  }
+}
+
+async function claimCampaignBatch(): Promise<CampaignRecipientJob[]> {
+  const claimed = await pool.query<{ id: string }>(`
+    with picked as (
+      select recipient.id
+      from communication_campaign_recipients recipient
+      join communication_campaigns campaign
+        on campaign.id = recipient.campaign_id
+      where recipient.status = 'PENDING'
+        and campaign.status in ('QUEUED', 'RUNNING', 'SCHEDULED')
+        and (
+          campaign.scheduled_at is null
+          or campaign.scheduled_at <= now()
+        )
+      order by recipient.created_at
+      limit 20
+      for update of recipient skip locked
+    )
+    update communication_campaign_recipients as recipient
+    set status = 'PROCESSING',
+        attempts = recipient.attempts + 1,
+        processing_started_at = now(),
+        last_attempt_at = now(),
+        failure_reason = null,
+        updated_at = now()
+    from picked
+    where recipient.id = picked.id
+    returning recipient.id
+  `);
+
+  const ids = claimed.rows.map((row) => row.id);
+  if (!ids.length) return [];
+
+  const result = await pool.query<CampaignRecipientJob>(`
+    select
+      recipient.id as recipient_id,
+      recipient.organization_id,
+      recipient.contact_id,
+      recipient.destination,
+      campaign.id as campaign_id,
+      campaign.workspace_id,
+      campaign.channel_account_id,
+      campaign.template_id,
+      template.name as template_name,
+      template.language as template_language,
+      template.category as template_category,
+      template.components as template_components,
+      channel.provider_phone_number_id,
+      channel.credential_ref,
+      channel.status as channel_status
+    from communication_campaign_recipients recipient
+    join communication_campaigns campaign
+      on campaign.id = recipient.campaign_id
+    join communication_message_templates template
+      on template.id = campaign.template_id
+    join communication_channel_accounts channel
+      on channel.id = campaign.channel_account_id
+    where recipient.id = any($1::uuid[])
+  `, [ids]);
+
+  return result.rows;
 }
 
 async function claimBatch(): Promise<OutboxRow[]> {
@@ -116,20 +208,39 @@ function sleep(milliseconds: number) {
 
 async function runLoop() {
   await resetStaleClaims();
+  await resetStaleCampaignClaims();
+
   while (!stopping) {
-    const batch = await claimBatch();
-    if (!batch.length) {
+    const [outboxBatch, campaignBatch] = await Promise.all([
+      claimBatch(),
+      claimCampaignBatch(),
+    ]);
+
+    if (!outboxBatch.length && !campaignBatch.length) {
       await sleep(500);
       continue;
     }
 
-    for (const event of batch) {
+    for (const event of outboxBatch) {
       if (stopping) break;
       try {
         await publish(event);
       } catch (error) {
         console.error('[worker] outbox publish failed', event.id, error);
         await fail(event, error);
+      }
+    }
+
+    for (const job of campaignBatch) {
+      if (stopping) break;
+      try {
+        await dispatchCampaignJob(pool, job);
+      } catch (error) {
+        console.error(
+          '[worker] campaign dispatch reconciliation failed',
+          job.recipient_id,
+          error,
+        );
       }
     }
   }
@@ -149,6 +260,7 @@ async function bootstrap() {
   await pool.query('select 1');
   console.log('[worker] database and Redis connected');
   console.log(`[worker] publishing outbox events to ${eventStream}`);
+  console.log('[worker] WhatsApp campaign dispatcher active');
   await runLoop();
   await redis.quit();
   await pool.end();

@@ -4,6 +4,7 @@ export default defineConfig({
   schema: [
     './src/platform/database/schema.ts',
     './src/modules/crm/crm.schema.ts',
+    './src/modules/communication/communication.schema.ts',
   ],
   out: './drizzle',
   dialect: 'postgresql',

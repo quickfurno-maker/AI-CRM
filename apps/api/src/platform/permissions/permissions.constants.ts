@@ -41,4 +41,12 @@ export const CORE_PERMISSIONS = [
   { key: 'crm.tag.manage', description: 'Manage CRM tags.' },
   { key: 'crm.custom_field.manage', description: 'Manage CRM custom fields.' },
   { key: 'crm.list.manage', description: 'Manage CRM saved lists and segments.' },
+
+  { key: 'communication.inbox.read', description: 'Read unified inbox conversations and messages.' },
+  { key: 'communication.message.send', description: 'Send outbound channel messages.' },
+  { key: 'communication.conversation.manage', description: 'Assign and change conversation handling mode.' },
+  { key: 'communication.channel.manage', description: 'Configure communication channel accounts.' },
+  { key: 'communication.template.manage', description: 'Manage message templates.' },
+  { key: 'communication.consent.manage', description: 'Manage communication consent records.' },
+  { key: 'communication.campaign.manage', description: 'Create and manage communication campaigns.' },
 ] as const;
