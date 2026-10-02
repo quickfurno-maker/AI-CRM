@@ -10,6 +10,7 @@ import { z } from 'zod';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { RealEstateService } from '../../extensions/real-estate/real-estate.service.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
+import { CommunicationService } from '../communication/communication.service.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
   auditLogs,
@@ -82,6 +83,48 @@ const toolSchemas = {
     requirementId: z.string().uuid(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
+  compare_properties: z.object({
+    unitIds: z.array(z.string().uuid()).min(2).max(5),
+  }),
+  create_requirement: z.object({
+    contactId: z.string().uuid().optional(),
+    leadId: z.string().uuid().optional(),
+    purpose: z.enum(['SELF_USE', 'INVESTMENT', 'RENTAL', 'OTHER']).optional(),
+    cities: z.array(z.string().min(1).max(120)).max(20).optional(),
+    localities: z.array(z.string().min(1).max(160)).max(50).optional(),
+    propertyTypes: z.array(z.string().min(1).max(48)).max(20).optional(),
+    configurations: z.array(z.string().min(1).max(80)).max(20).optional(),
+    minBudget: z.number().min(0).optional(),
+    maxBudget: z.number().min(0).optional(),
+    currency: z.string().length(3).optional(),
+    minCarpetArea: z.number().min(0).optional(),
+    maxCarpetArea: z.number().min(0).optional(),
+    purchaseTimeline: z.string().max(80).optional(),
+    possessionPreference: z.string().max(80).optional(),
+    mustHaveAmenities: z.array(z.string().min(1).max(160)).max(50).optional(),
+    notes: z.string().max(10000).optional(),
+  }),
+  send_property: z.object({
+    conversationId: z.string().uuid().optional(),
+    unitIds: z.array(z.string().uuid()).min(1).max(5),
+    intro: z.string().max(500).optional(),
+  }),
+  follow_up_buyer: z.object({
+    conversationId: z.string().uuid().optional(),
+    text: z.string().min(1).max(1500),
+  }),
+  create_booking: z.object({
+    contactId: z.string().uuid().optional(),
+    requirementId: z.string().uuid().optional(),
+    dealId: z.string().uuid().optional(),
+    offerId: z.string().uuid().optional(),
+    unitId: z.string().uuid(),
+    brokerId: z.string().uuid().optional(),
+    bookingAmount: z.number().min(0).optional(),
+    currency: z.string().length(3).optional(),
+    externalReference: z.string().max(160).optional(),
+    notes: z.string().max(4000).optional(),
+  }),
   get_business_analytics: z.object({
     from: z.string().optional(),
     to: z.string().optional(),
@@ -108,6 +151,7 @@ export class AiToolGatewayService {
     private readonly knowledge: AiKnowledgeService,
     private readonly realEstate: RealEstateService,
     private readonly analytics: AnalyticsService,
+    private readonly communication: CommunicationService,
   ) {}
 
   async buildAgentTools(context: AiExecutionContext) {
