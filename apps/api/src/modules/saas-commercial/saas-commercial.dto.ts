@@ -46,6 +46,20 @@ export class ConfigurePlanDto {
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
+export class ConfigureMeterPriceDto {
+  @IsUUID() planId: string;
+  @IsString() @Matches(/^[a-z][a-z0-9._-]*$/) @MaxLength(160) meterKey: string;
+  @IsOptional() @IsString() @MaxLength(40) unit?: string;
+  @Matches(/^[A-Z]{3}$/) currency: string;
+  @Matches(/^\d+(?:\.\d{1,6})?$/) includedQuantity: string;
+  @Matches(/^\d+(?:\.\d{1,6})?$/) unitAmount: string;
+  @IsOptional() @IsInt() @Min(1) @Max(100) warningThresholdPercent?: number;
+  @IsIn(['OVERAGE', 'THROTTLE', 'HARD_LIMIT'])
+  enforcementMode: 'OVERAGE' | 'THROTTLE' | 'HARD_LIMIT';
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsObject() metadata?: Record<string, unknown>;
+}
+
 export class ConfigureAddonDto {
   @IsString() @Matches(/^[a-z][a-z0-9._-]*$/) @MaxLength(120) key: string;
   @IsString() @MinLength(1) @MaxLength(180) name: string;
