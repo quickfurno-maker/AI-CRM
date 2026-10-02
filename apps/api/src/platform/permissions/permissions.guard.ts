@@ -36,7 +36,11 @@ export class PermissionsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<RequestWithPrincipal>();
     const principal = request.principal;
     if (!principal) throw new ForbiddenException('Missing tenant principal.');
-    if (principal.isPlatformAdmin) return true;
+    if (principal.isPlatformAdmin) {
+      principal.permissionKey = permission;
+      principal.permissionScope = 'ORGANIZATION';
+      return true;
+    }
 
     if (principal.authScopes) {
       if (!principal.authScopes.includes(permission)) {
@@ -44,6 +48,8 @@ export class PermissionsGuard implements CanActivate {
           `External credential is missing required scope: ${permission}.`,
         );
       }
+      principal.permissionKey = permission;
+      principal.permissionScope = 'ORGANIZATION';
       return true;
     }
 
@@ -57,14 +63,8 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Permission denied.');
     }
 
-    // Phase 2 deliberately fails closed for narrower data scopes. The
-    // repository layer must implement OWN/TEAM/BRANCH/WORKSPACE filters
-    // before those scopes are allowed through this global guard.
-    if (scope !== 'ORGANIZATION') {
-      throw new ForbiddenException(
-        'This permission scope is not enabled for this module yet.',
-      );
-    }
+    principal.permissionKey = permission;
+    principal.permissionScope = scope;
     return true;
   }
 }
