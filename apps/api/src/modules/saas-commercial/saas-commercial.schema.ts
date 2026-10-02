@@ -175,6 +175,8 @@ export const saasSubscriptionAddons = pgTable(
       .notNull()
       .references(() => saasAddons.id, { onDelete: 'restrict' }),
     quantity: integer('quantity').default(1).notNull(),
+    pendingQuantity: integer('pending_quantity'),
+    pendingChangeAt: timestamp('pending_change_at', { withTimezone: true }),
     status: varchar('status', { length: 24 }).default('ACTIVE').notNull(),
     currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
