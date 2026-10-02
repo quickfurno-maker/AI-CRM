@@ -527,7 +527,10 @@ export default function WhatsAppPage() {
             <div className="rounded-xl bg-white/10 px-3 py-2.5 text-white">
               WhatsApp
             </div>
-            {['AI Agents', 'Automations', 'Attendance', 'Billing', 'Analytics'].map((item) => (
+            <Link href="/ai-agents" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">
+              AI Agents
+            </Link>
+            {['Automations', 'Attendance', 'Billing', 'Analytics'].map((item) => (
               <div key={item} className="rounded-xl px-3 py-2.5 text-zinc-600">{item}</div>
             ))}
           </nav>
@@ -546,12 +549,20 @@ export default function WhatsAppPage() {
                 Client-owned WABA · unified inbox · templates · campaigns.
               </p>
             </div>
-            <button
-              onClick={() => void load()}
-              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5"
-            >
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <Link
+                href="/whatsapp/ai"
+                className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950"
+              >
+                AI Client Handler
+              </Link>
+              <button
+                onClick={() => void load()}
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5"
+              >
+                Refresh
+              </button>
+            </div>
           </header>
 
           {error ? (

@@ -59,4 +59,6 @@ export const CORE_PERMISSIONS = [
   { key: 'ai.knowledge.read', description: 'Read AI knowledge bases and documents.' },
   { key: 'ai.knowledge.manage', description: 'Manage and ingest tenant AI knowledge.' },
   { key: 'ai.usage.read', description: 'Read AI usage, cost and evaluation telemetry.' },
+  { key: 'ai.whatsapp.read', description: 'Read AI WhatsApp bindings, jobs and suggestions.' },
+  { key: 'ai.whatsapp.manage', description: 'Configure AI WhatsApp handling and send approved AI-assist suggestions.' },
 ] as const;

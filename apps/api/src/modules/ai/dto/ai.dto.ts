@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsObject,
@@ -84,6 +85,20 @@ export class CreateEvaluationDto {
   @IsOptional() score?: number;
   @IsOptional() passed?: boolean;
   @IsOptional() @IsObject() details?: Record<string, unknown>;
+}
+
+export class UpsertAiWhatsappBindingDto {
+  @IsUUID() channelAccountId: string;
+  @IsUUID() agentId: string;
+  @IsOptional() @IsUUID() operatorMemberId?: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsIn(['HUMAN', 'AI', 'AI_ASSIST']) defaultHandlingMode?: string;
+  @IsOptional() @IsInt() @Min(5) @Max(100) maxContextMessages?: number;
+  @IsOptional() @IsBoolean() autoReplyEnabled?: boolean;
+}
+
+export class ProcessAiWhatsappMessageDto {
+  @IsUUID() messageId: string;
 }
 
 export class SeedToolPoliciesDto {

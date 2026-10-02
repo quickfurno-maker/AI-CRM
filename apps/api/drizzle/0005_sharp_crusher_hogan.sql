@@ -1,0 +1,2 @@
+ALTER TABLE "communication_conversations" ADD COLUMN "handling_mode_source" varchar(32) DEFAULT 'DEFAULT' NOT NULL;--> statement-breakpoint
+ALTER TABLE "communication_conversations" ADD COLUMN "handling_mode_updated_at" timestamp with time zone DEFAULT now() NOT NULL;

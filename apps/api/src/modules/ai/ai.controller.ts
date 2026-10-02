@@ -16,6 +16,7 @@ import { AiKnowledgeService } from './ai-knowledge.service.js';
 import { AiManagementService } from './ai-management.service.js';
 import { AiRuntimeService } from './ai-runtime.service.js';
 import { AiToolGatewayService } from './ai-tool-gateway.service.js';
+import { AiWhatsappService } from './ai-whatsapp.service.js';
 import {
   CreateAgentDto,
   CreateAgentVersionDto,
@@ -27,6 +28,8 @@ import {
   RunAgentDto,
   SetAgentToolPolicyDto,
   SimulateToolDto,
+  ProcessAiWhatsappMessageDto,
+  UpsertAiWhatsappBindingDto,
 } from './dto/ai.dto.js';
 
 @Controller('ai')
@@ -36,6 +39,7 @@ export class AiController {
     private readonly runtime: AiRuntimeService,
     private readonly tools: AiToolGatewayService,
     private readonly knowledge: AiKnowledgeService,
+    private readonly whatsapp: AiWhatsappService,
   ) {}
 
   @Get('agents')
@@ -228,6 +232,54 @@ export class AiController {
     @Body() dto: CreateKnowledgeBaseDto,
   ) {
     return this.knowledge.createBase(principal, dto);
+  }
+
+  @Get('whatsapp/bindings')
+  @RequirePermission('ai.whatsapp.read')
+  listWhatsappBindings(@CurrentPrincipal() principal: Principal) {
+    return this.whatsapp.listBindings(principal);
+  }
+
+  @Put('whatsapp/bindings')
+  @RequirePermission('ai.whatsapp.manage')
+  upsertWhatsappBinding(
+    @CurrentPrincipal() principal: Principal,
+    @Body() dto: UpsertAiWhatsappBindingDto,
+  ) {
+    return this.whatsapp.upsertBinding(principal, dto);
+  }
+
+  @Get('whatsapp/jobs')
+  @RequirePermission('ai.whatsapp.read')
+  listWhatsappJobs(@CurrentPrincipal() principal: Principal) {
+    return this.whatsapp.listJobs(principal);
+  }
+
+  @Get('whatsapp/suggestions')
+  @RequirePermission('ai.whatsapp.read')
+  listWhatsappSuggestions(@CurrentPrincipal() principal: Principal) {
+    return this.whatsapp.listSuggestions(principal);
+  }
+
+  @Post('whatsapp/suggestions/:id/send')
+  @RequirePermission('ai.whatsapp.manage')
+  sendWhatsappSuggestion(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.whatsapp.sendSuggestion(principal, id);
+  }
+
+  @Post('whatsapp/process')
+  @RequirePermission('ai.whatsapp.manage')
+  processWhatsappMessage(
+    @CurrentPrincipal() principal: Principal,
+    @Body() dto: ProcessAiWhatsappMessageDto,
+  ) {
+    return this.whatsapp.processInboundMessage(
+      dto.messageId,
+      principal.organizationId,
+    );
   }
 
   @Get('knowledge-bases/:id/documents')

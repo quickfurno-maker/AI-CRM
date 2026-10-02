@@ -135,6 +135,14 @@ export const conversations = pgTable(
     handlingMode: varchar('handling_mode', { length: 32 })
       .default('HUMAN')
       .notNull(),
+    handlingModeSource: varchar('handling_mode_source', { length: 32 })
+      .default('DEFAULT')
+      .notNull(),
+    handlingModeUpdatedAt: timestamp('handling_mode_updated_at', {
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
     unreadCount: integer('unread_count').default(0).notNull(),
     lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }),
     lastOutboundAt: timestamp('last_outbound_at', { withTimezone: true }),

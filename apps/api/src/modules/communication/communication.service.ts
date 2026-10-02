@@ -323,6 +323,8 @@ export class CommunicationService {
           assignedMemberId,
           status: dto.status,
           handlingMode: dto.handlingMode,
+          handlingModeSource: dto.handlingMode ? 'USER' : undefined,
+          handlingModeUpdatedAt: dto.handlingMode ? new Date() : undefined,
           updatedAt: new Date(),
         })
         .where(
@@ -497,6 +499,145 @@ export class CommunicationService {
           messageType: 'text',
         },
       });
+      return message;
+    });
+  }
+
+  async sendAgentText(input: {
+    organizationId: string;
+    conversationId: string;
+    agentId: string;
+    runId: string;
+    text: string;
+  }) {
+    const rows = await this.database.db
+      .select({
+        conversation: conversations,
+        contactPhone: contacts.phone,
+        channel: channelAccounts,
+      })
+      .from(conversations)
+      .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+      .innerJoin(
+        channelAccounts,
+        eq(channelAccounts.id, conversations.channelAccountId),
+      )
+      .where(
+        and(
+          eq(conversations.organizationId, input.organizationId),
+          eq(conversations.id, input.conversationId),
+          eq(contacts.organizationId, input.organizationId),
+          eq(channelAccounts.organizationId, input.organizationId),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) throw new NotFoundException('Conversation not found.');
+    if (row.conversation.handlingMode !== 'AI') {
+      throw new ConflictException(
+        'Autonomous AI replies require conversation handling mode AI.',
+      );
+    }
+    if (!row.contactPhone) {
+      throw new BadRequestException(
+        'Contact does not have a WhatsApp destination.',
+      );
+    }
+    if (row.channel.status !== 'CONNECTED') {
+      throw new ConflictException('WhatsApp channel is not connected.');
+    }
+
+    const serviceWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    if (
+      !row.conversation.lastInboundAt ||
+      row.conversation.lastInboundAt < serviceWindowStart
+    ) {
+      throw new ConflictException(
+        'Autonomous free-form WhatsApp replies require an inbound customer message within the last 24 hours.',
+      );
+    }
+
+    const idempotencyKey = 'ai-run:' + input.runId;
+    const existing = await this.database.db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.organizationId, input.organizationId),
+          eq(messages.idempotencyKey, idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (existing[0]) return existing[0];
+
+    const result = await this.meta.sendText(
+      row.channel,
+      row.contactPhone,
+      input.text.trim(),
+    );
+
+    return this.database.db.transaction(async (tx) => {
+      const now = new Date();
+      const [message] = await tx
+        .insert(messages)
+        .values({
+          organizationId: input.organizationId,
+          conversationId: input.conversationId,
+          channelAccountId: row.channel.id,
+          externalMessageId: result.externalMessageId,
+          idempotencyKey,
+          direction: 'OUTBOUND',
+          messageType: 'text',
+          textBody: input.text.trim(),
+          status: 'SENT',
+          providerStatus: 'accepted',
+          providerTimestamp: now,
+          metadata: {
+            sentByAgentId: input.agentId,
+            aiRunId: input.runId,
+            providerResponse: result.providerResponse,
+          },
+        })
+        .returning();
+
+      await tx
+        .update(conversations)
+        .set({
+          lastOutboundAt: now,
+          lastMessageAt: now,
+          updatedAt: now,
+        })
+        .where(eq(conversations.id, input.conversationId));
+
+      await tx.insert(outboxEvents).values({
+        organizationId: input.organizationId,
+        eventType: 'communication.message.sent_by_ai.v1',
+        aggregateType: 'message',
+        aggregateId: message.id,
+        payload: {
+          messageId: message.id,
+          conversationId: input.conversationId,
+          agentId: input.agentId,
+          runId: input.runId,
+          externalMessageId: message.externalMessageId,
+        },
+      });
+
+      await tx.insert(auditLogs).values({
+        organizationId: input.organizationId,
+        workspaceId: row.conversation.workspaceId,
+        actorType: 'AI_AGENT',
+        actorId: input.agentId,
+        action: 'communication.whatsapp.send',
+        resourceType: 'message',
+        resourceId: message.id,
+        metadata: {
+          conversationId: input.conversationId,
+          runId: input.runId,
+        },
+      });
+
       return message;
     });
   }

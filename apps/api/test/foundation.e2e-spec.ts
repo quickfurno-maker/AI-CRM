@@ -988,4 +988,261 @@ describe('Phase 1 SaaS foundation', () => {
       )?.status,
     ).toBe('ACTIVE');
   });
+
+  it('runs the AI WhatsApp client handler in assist and autonomous modes safely', async () => {
+    const tenantG = await register({
+      email: 'ai-whatsapp-g@example.com',
+      organizationName: 'AI WhatsApp Tenant G',
+      organizationSlug: 'ai-whatsapp-tenant-g',
+    });
+    const tenantH = await register({
+      email: 'ai-whatsapp-h@example.com',
+      organizationName: 'AI WhatsApp Tenant H',
+      organizationSlug: 'ai-whatsapp-tenant-h',
+    });
+    const authG = {
+      authorization: `Bearer ${tenantG.tokens.accessToken}`,
+    };
+    const authH = {
+      authorization: `Bearer ${tenantH.tokens.accessToken}`,
+    };
+
+    await pool.query(
+      `insert into entitlements
+        (organization_id, key, enabled, source)
+       values
+        ('${tenantG.organization.id}', 'ai.whatsapp_client_handler', true, 'ADDON')`,
+    );
+
+    const agent = await request(app.getHttpServer())
+      .post('/v1/ai/agents')
+      .set(authG)
+      .send({
+        key: 'whatsapp-handler',
+        name: 'WhatsApp Client Handler',
+        role: 'CLIENT_HANDLER',
+        defaultHandlingMode: 'AI_ASSIST',
+        instructions:
+          'Handle WhatsApp client enquiries using only approved tenant knowledge and tools. Never invent business facts. Escalate when authority is insufficient.',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/agents/${agent.body.agent.id as string}/versions/${agent.body.version.id as string}/activate`,
+      )
+      .set(authG)
+      .expect(201);
+
+    const begin = await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/begin')
+      .set(authG)
+      .send({})
+      .expect(201);
+
+    const connected = await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/complete')
+      .set(authG)
+      .send({
+        connectionId: begin.body.connectionId,
+        signupState: begin.body.state,
+        authorizationCode: 'mock-ai-whatsapp-code',
+        businessPortfolioId: 'business-ai-whatsapp-1',
+        wabaId: 'waba-ai-whatsapp-1',
+        phoneNumberId: 'phone-ai-whatsapp-1',
+        displayName: 'AI WhatsApp',
+        displayAddress: '+91 90000 00009',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .put('/v1/ai/whatsapp/bindings')
+      .set(authG)
+      .send({
+        channelAccountId: connected.body.channel.id,
+        agentId: agent.body.agent.id,
+        enabled: true,
+        defaultHandlingMode: 'AI_ASSIST',
+        maxContextMessages: 20,
+        autoReplyEnabled: false,
+      })
+      .expect(200);
+
+    const signAndSendInbound = async (
+      externalMessageId: string,
+      textBody: string,
+    ) => {
+      const payload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-ai-whatsapp-1',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: {
+                    display_phone_number: '919000000009',
+                    phone_number_id: 'phone-ai-whatsapp-1',
+                  },
+                  contacts: [
+                    {
+                      profile: { name: 'AI WhatsApp Client' },
+                      wa_id: '919833333333',
+                    },
+                  ],
+                  messages: [
+                    {
+                      from: '919833333333',
+                      id: externalMessageId,
+                      timestamp: String(Math.floor(Date.now() / 1000)),
+                      type: 'text',
+                      text: { body: textBody },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const raw = JSON.stringify(payload);
+      const signature =
+        'sha256=' +
+        createHmac('sha256', 'test-meta-app-secret')
+          .update(raw)
+          .digest('hex');
+
+      await request(app.getHttpServer())
+        .post('/v1/webhooks/meta/whatsapp')
+        .set('content-type', 'application/json')
+        .set('x-hub-signature-256', signature)
+        .send(raw)
+        .expect(201);
+    };
+
+    await signAndSendInbound(
+      'wamid.ai.assist.1',
+      'Can you help me understand your premium service?',
+    );
+
+    const conversations = await request(app.getHttpServer())
+      .get('/v1/communication/conversations')
+      .set(authG)
+      .expect(200);
+    expect(conversations.body).toHaveLength(1);
+    const conversationId = conversations.body[0].id as string;
+
+    let conversationMessages = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversationId}/messages`,
+      )
+      .set(authG)
+      .expect(200);
+    const assistInbound = conversationMessages.body.find(
+      (item: { externalMessageId?: string }) =>
+        item.externalMessageId === 'wamid.ai.assist.1',
+    );
+    expect(assistInbound).toBeTruthy();
+
+    const assistResult = await request(app.getHttpServer())
+      .post('/v1/ai/whatsapp/process')
+      .set(authG)
+      .send({ messageId: assistInbound.id })
+      .expect(201);
+    expect(assistResult.body.status).toBe('COMPLETED');
+    expect(assistResult.body.mode).toBe('AI_ASSIST');
+    expect(assistResult.body.suggestionId).toBeTruthy();
+
+    const crossTenantReplay = await request(app.getHttpServer())
+      .post('/v1/ai/whatsapp/process')
+      .set(authH)
+      .send({ messageId: assistInbound.id })
+      .expect(201);
+    expect(crossTenantReplay.body).toMatchObject({
+      status: 'SKIPPED',
+      reason: 'Inbound message not found.',
+    });
+
+    const suggestions = await request(app.getHttpServer())
+      .get('/v1/ai/whatsapp/suggestions')
+      .set(authG)
+      .expect(200);
+    const draft = suggestions.body.find(
+      (item: { id: string }) =>
+        item.id === assistResult.body.suggestionId,
+    );
+    expect(draft?.status).toBe('DRAFT');
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/whatsapp/suggestions/${assistResult.body.suggestionId as string}/send`,
+      )
+      .set(authG)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .put('/v1/ai/whatsapp/bindings')
+      .set(authG)
+      .send({
+        channelAccountId: connected.body.channel.id,
+        agentId: agent.body.agent.id,
+        enabled: true,
+        defaultHandlingMode: 'AI',
+        maxContextMessages: 20,
+        autoReplyEnabled: true,
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/communication/conversations/${conversationId}`,
+      )
+      .set(authG)
+      .send({ handlingMode: 'AI' })
+      .expect(200);
+
+    await signAndSendInbound(
+      'wamid.ai.auto.2',
+      'Please continue and tell me the next step.',
+    );
+
+    conversationMessages = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversationId}/messages`,
+      )
+      .set(authG)
+      .expect(200);
+    const autonomousInbound = conversationMessages.body.find(
+      (item: { externalMessageId?: string }) =>
+        item.externalMessageId === 'wamid.ai.auto.2',
+    );
+    expect(autonomousInbound).toBeTruthy();
+
+    const autonomous = await request(app.getHttpServer())
+      .post('/v1/ai/whatsapp/process')
+      .set(authG)
+      .send({ messageId: autonomousInbound.id })
+      .expect(201);
+    expect(autonomous.body.status).toBe('COMPLETED');
+    expect(autonomous.body.mode).toBe('AI');
+    expect(autonomous.body.outboundMessageId).toBeTruthy();
+
+    const bindingsOtherTenant = await request(app.getHttpServer())
+      .get('/v1/ai/whatsapp/bindings')
+      .set(authH)
+      .expect(200);
+    expect(bindingsOtherTenant.body).toHaveLength(0);
+
+    const jobs = await request(app.getHttpServer())
+      .get('/v1/ai/whatsapp/jobs')
+      .set(authG)
+      .expect(200);
+    expect(
+      jobs.body.filter(
+        (item: { status: string }) => item.status === 'COMPLETED',
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
 });

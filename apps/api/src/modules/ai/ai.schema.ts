@@ -18,7 +18,11 @@ import {
   workspaces,
 } from '../../platform/database/schema.js';
 import { contacts } from '../crm/crm.schema.js';
-import { conversations } from '../communication/communication.schema.js';
+import {
+  channelAccounts,
+  conversations,
+  messages,
+} from '../communication/communication.schema.js';
 
 const createdAt = () =>
   timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
@@ -475,6 +479,143 @@ export const aiEvaluations = pgTable(
     index('ai_evaluations_org_run_idx').on(
       table.organizationId,
       table.runId,
+    ),
+  ],
+);
+
+export const aiWhatsappBindings = pgTable(
+  'ai_whatsapp_bindings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    channelAccountId: uuid('channel_account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => aiAgents.id, { onDelete: 'restrict' }),
+    operatorMemberId: uuid('operator_member_id').references(
+      () => organizationMembers.id,
+      { onDelete: 'set null' },
+    ),
+    enabled: boolean('enabled').default(false).notNull(),
+    defaultHandlingMode: varchar('default_handling_mode', { length: 32 })
+      .default('AI_ASSIST')
+      .notNull(),
+    maxContextMessages: integer('max_context_messages')
+      .default(20)
+      .notNull(),
+    autoReplyEnabled: boolean('auto_reply_enabled').default(false).notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('ai_whatsapp_bindings_channel_uq').on(
+      table.channelAccountId,
+    ),
+    index('ai_whatsapp_bindings_org_enabled_idx').on(
+      table.organizationId,
+      table.enabled,
+    ),
+  ],
+);
+
+export const aiWhatsappJobs = pgTable(
+  'ai_whatsapp_jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    bindingId: uuid('binding_id').references(() => aiWhatsappBindings.id, {
+      onDelete: 'set null',
+    }),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    inboundMessageId: uuid('inbound_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id').references(() => aiRuns.id, {
+      onDelete: 'set null',
+    }),
+    outboundMessageId: uuid('outbound_message_id').references(
+      () => messages.id,
+      { onDelete: 'set null' },
+    ),
+    status: varchar('status', { length: 32 }).default('PENDING').notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    processingStartedAt: timestamp('processing_started_at', {
+      withTimezone: true,
+    }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('ai_whatsapp_jobs_inbound_message_uq').on(
+      table.inboundMessageId,
+    ),
+    index('ai_whatsapp_jobs_org_status_idx').on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const aiWhatsappSuggestions = pgTable(
+  'ai_whatsapp_suggestions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    jobId: uuid('job_id')
+      .notNull()
+      .references(() => aiWhatsappJobs.id, { onDelete: 'cascade' }),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    inboundMessageId: uuid('inbound_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => aiRuns.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => aiAgents.id, { onDelete: 'restrict' }),
+    type: varchar('type', { length: 32 }).default('REPLY').notNull(),
+    status: varchar('status', { length: 32 }).default('DRAFT').notNull(),
+    content: text('content').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    sentMessageId: uuid('sent_message_id').references(() => messages.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('ai_whatsapp_suggestions_job_type_uq').on(
+      table.jobId,
+      table.type,
+    ),
+    index('ai_whatsapp_suggestions_org_status_idx').on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
     ),
   ],
 );

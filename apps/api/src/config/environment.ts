@@ -29,6 +29,9 @@ const schema = z
     AI_OPENAI_FAST_MODEL: z.string().default('gpt-6-luna'),
     AI_OPENAI_REASONING_MODEL: z.string().default('gpt-6.1-sol'),
     AI_OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+    EVENT_STREAM: z.string().default('crm-ai:events'),
+    AI_WHATSAPP_EVENT_CONSUMER_ENABLED: z.coerce.boolean().default(false),
+    AI_WHATSAPP_CONSUMER_GROUP: z.string().default('crm-ai:ai-whatsapp'),
   })
   .superRefine((env, ctx) => {
     if (

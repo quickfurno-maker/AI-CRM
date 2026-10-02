@@ -16,5 +16,6 @@ import { MetaWebhookService } from './meta-webhook.service.js';
     MetaPartnerService,
     MetaWebhookService,
   ],
+  exports: [CommunicationService],
 })
 export class CommunicationModule {}

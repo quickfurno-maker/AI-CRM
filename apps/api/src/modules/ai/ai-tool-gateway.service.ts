@@ -527,6 +527,8 @@ export class AiToolGatewayService {
           .update(conversations)
           .set({
             handlingMode: 'HUMAN',
+            handlingModeSource: 'AI_HANDOFF',
+            handlingModeUpdatedAt: new Date(),
             status: 'OPEN',
             updatedAt: new Date(),
           })

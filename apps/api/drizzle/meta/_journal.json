@@ -29,6 +29,20 @@
       "when": 1790925541100,
       "tag": "0003_fuzzy_layla_miller",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790927141966,
+      "tag": "0004_brave_whirlwind",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790928571799,
+      "tag": "0005_sharp_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }
