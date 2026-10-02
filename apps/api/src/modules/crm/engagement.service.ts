@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import { auditLogs, outboxEvents } from '../../platform/database/schema.js';
@@ -11,6 +11,7 @@ import {
 } from './crm.schema.js';
 import { CrmProvisioningService } from './crm-provisioning.service.js';
 import { CrmReferenceService } from './crm-reference.service.js';
+import { CrmScopeService } from './crm-scope.service.js';
 import type {
   CreateActivityDto,
   CreateAppointmentDto,
@@ -27,13 +28,25 @@ export class EngagementService {
     private readonly database: DatabaseService,
     private readonly provisioning: CrmProvisioningService,
     private readonly references: CrmReferenceService,
+    private readonly scope: CrmScopeService,
   ) {}
 
   async listTasks(principal: Principal, query: ListQueryDto) {
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(tasks.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(tasks.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
     return this.database.db
       .select()
       .from(tasks)
-      .where(eq(tasks.organizationId, principal.organizationId))
+      .where(and(eq(tasks.organizationId, principal.organizationId), scopeFilter))
       .orderBy(desc(tasks.createdAt))
       .limit(query.limit);
   }
@@ -50,6 +63,10 @@ export class EngagementService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Task not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Task not found.');
+    }
     return rows[0];
   }
 
@@ -62,6 +79,7 @@ export class EngagementService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
     const [contactId, leadId, dealId] = await Promise.all([
       this.references.contact(principal.organizationId, dto.contactId),
       this.references.lead(principal.organizationId, dto.leadId),
@@ -114,6 +132,11 @@ export class EngagementService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
     const completedAt =
       dto.status === 'DONE'
         ? before.completedAt ?? new Date()
@@ -164,10 +187,21 @@ export class EngagementService {
   }
 
   async listAppointments(principal: Principal, query: ListQueryDto) {
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(appointments.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(appointments.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
     return this.database.db
       .select()
       .from(appointments)
-      .where(eq(appointments.organizationId, principal.organizationId))
+      .where(and(eq(appointments.organizationId, principal.organizationId), scopeFilter))
       .orderBy(desc(appointments.startsAt))
       .limit(query.limit);
   }
@@ -184,6 +218,10 @@ export class EngagementService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Appointment not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Appointment not found.');
+    }
     return rows[0];
   }
 
@@ -196,6 +234,7 @@ export class EngagementService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     if (endsAt <= startsAt) {
@@ -263,6 +302,11 @@ export class EngagementService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : before.startsAt;
     const endsAt = dto.endsAt ? new Date(dto.endsAt) : before.endsAt;
     if (endsAt <= startsAt) {
@@ -316,11 +360,22 @@ export class EngagementService {
     });
   }
 
-  listActivities(principal: Principal, limit = 50) {
+  async listActivities(principal: Principal, limit = 50) {
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(activities.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(activities.actorMemberId, scope.ownerMemberIds)
+            : sql`false`;
     return this.database.db
       .select()
       .from(activities)
-      .where(eq(activities.organizationId, principal.organizationId))
+      .where(and(eq(activities.organizationId, principal.organizationId), scopeFilter))
       .orderBy(desc(activities.occurredAt))
       .limit(Math.min(Math.max(limit, 1), 100));
   }
@@ -335,6 +390,20 @@ export class EngagementService {
       this.references.company(principal.organizationId, dto.companyId),
       this.references.lead(principal.organizationId, dto.leadId),
       this.references.deal(principal.organizationId, dto.dealId),
+    ]);
+    await Promise.all([
+      dto.contactId
+        ? this.scope.assertObjectAccess(principal, 'CONTACT', dto.contactId)
+        : undefined,
+      dto.companyId
+        ? this.scope.assertObjectAccess(principal, 'COMPANY', dto.companyId)
+        : undefined,
+      dto.leadId
+        ? this.scope.assertObjectAccess(principal, 'LEAD', dto.leadId)
+        : undefined,
+      dto.dealId
+        ? this.scope.assertObjectAccess(principal, 'DEAL', dto.dealId)
+        : undefined,
     ]);
 
     return this.database.db.transaction(async (tx) => {
@@ -377,7 +446,12 @@ export class EngagementService {
     });
   }
 
-  listNotes(principal: Principal, objectType: string, objectId: string) {
+  async listNotes(principal: Principal, objectType: string, objectId: string) {
+    await this.scope.assertObjectAccess(
+      principal,
+      objectType as 'CONTACT' | 'COMPANY' | 'LEAD' | 'DEAL',
+      objectId,
+    );
     return this.database.db
       .select()
       .from(notes)
@@ -406,6 +480,11 @@ export class EngagementService {
     } else {
       await this.references.deal(principal.organizationId, dto.objectId);
     }
+    await this.scope.assertObjectAccess(
+      principal,
+      dto.objectType as 'CONTACT' | 'COMPANY' | 'LEAD' | 'DEAL',
+      dto.objectId,
+    );
 
     return this.database.db.transaction(async (tx) => {
       const [note] = await tx
