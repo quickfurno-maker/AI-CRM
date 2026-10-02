@@ -7,4 +7,5 @@ export * from '../../modules/business-billing/business-billing.schema.js';
 export * from '../../extensions/real-estate/real-estate.schema.js';
 export * from '../../modules/developer/developer.schema.js';
 export * from '../../modules/enterprise/enterprise.schema.js';
+export * from '../../modules/staff/staff.schema.js';
 export * from '../../extensions/attendance/attendance.schema.js';
