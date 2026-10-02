@@ -530,7 +530,10 @@ export default function WhatsAppPage() {
             <Link href="/ai-agents" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">
               AI Agents
             </Link>
-            {['Automations', 'Attendance', 'Billing', 'Analytics'].map((item) => (
+            <Link href="/automations" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">
+              Automations
+            </Link>
+            {['Attendance', 'Billing', 'Analytics'].map((item) => (
               <div key={item} className="rounded-xl px-3 py-2.5 text-zinc-600">{item}</div>
             ))}
           </nav>

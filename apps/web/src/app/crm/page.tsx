@@ -232,7 +232,10 @@ export default function CrmPage() {
               Command Center
             </Link>
             <div className="rounded-xl bg-white/10 px-3 py-2.5 text-white">CRM</div>
-            {['Inbox', 'AI Agents', 'Automations', 'Attendance', 'Billing', 'Analytics'].map((item) => (
+            <Link href="/whatsapp" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">WhatsApp</Link>
+            <Link href="/ai-agents" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">AI Agents</Link>
+            <Link href="/automations" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Automations</Link>
+            {['Attendance', 'Billing', 'Analytics'].map((item) => (
               <div key={item} className="rounded-xl px-3 py-2.5 text-zinc-600">{item}</div>
             ))}
           </nav>

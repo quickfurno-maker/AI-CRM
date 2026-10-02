@@ -33,7 +33,7 @@ const nav = [
   { label: 'CRM', href: '/crm', active: false },
   { label: 'WhatsApp', href: '/whatsapp', active: false },
   { label: 'AI Agents', href: '/ai-agents', active: false },
-  { label: 'Automations' },
+  { label: 'Automations', href: '/automations', active: false },
   { label: 'Attendance' },
   { label: 'Billing' },
   { label: 'Analytics' },
