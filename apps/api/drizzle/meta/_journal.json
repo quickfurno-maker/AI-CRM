@@ -92,6 +92,13 @@
       "when": 1790962006632,
       "tag": "0012_wise_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790990000000,
+      "tag": "0013_staff_seat_foundation",
+      "breakpoints": true
     }
   ]
 }
