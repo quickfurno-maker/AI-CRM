@@ -45,6 +45,10 @@ ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_organization_member_
 --> statement-breakpoint
 ALTER TABLE "staff_profiles" ADD CONSTRAINT "staff_profiles_manager_member_id_organization_members_id_fk" FOREIGN KEY ("manager_member_id") REFERENCES "public"."organization_members"("id") ON DELETE set null ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "attendance_employees" ADD COLUMN "staff_profile_id" uuid;
+--> statement-breakpoint
+ALTER TABLE "attendance_employees" ADD CONSTRAINT "attendance_employees_staff_profile_id_staff_profiles_id_fk" FOREIGN KEY ("staff_profile_id") REFERENCES "public"."staff_profiles"("id") ON DELETE set null ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "member_seat_assignments" ADD CONSTRAINT "member_seat_assignments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "member_seat_assignments" ADD CONSTRAINT "member_seat_assignments_organization_member_id_organization_members_id_fk" FOREIGN KEY ("organization_member_id") REFERENCES "public"."organization_members"("id") ON DELETE cascade ON UPDATE no action;
@@ -109,6 +113,16 @@ FROM "attendance_employees" employee
 LEFT JOIN "attendance_departments" department
   ON department."id" = employee."department_id"
 ON CONFLICT DO NOTHING;
+--> statement-breakpoint
+
+UPDATE "attendance_employees" employee
+SET "staff_profile_id" = staff."id"
+FROM "staff_profiles" staff
+WHERE staff."organization_id" = employee."organization_id"
+  AND staff."employee_code" = employee."employee_code"
+  AND employee."staff_profile_id" IS NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "attendance_employees_staff_profile_uq" ON "attendance_employees" USING btree ("staff_profile_id");
 --> statement-breakpoint
 
 INSERT INTO "member_seat_assignments" (
