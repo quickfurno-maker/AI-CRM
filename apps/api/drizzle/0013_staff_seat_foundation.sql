@@ -146,7 +146,7 @@ SELECT
   now()
 FROM "organization_members" member
 WHERE member."status" = 'ACTIVE'
-ON CONFLICT ("organization_member_id") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 
 INSERT INTO "entitlements" (
@@ -160,7 +160,7 @@ INSERT INTO "entitlements" (
 )
 SELECT organization."id", 'staff.records.max', true, NULL, 'SYSTEM', now(), now()
 FROM "organizations" organization
-ON CONFLICT ("organization_id","key") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "entitlements" (
   "organization_id",
@@ -183,7 +183,7 @@ FROM "organizations" organization
 LEFT JOIN "entitlements" legacy
   ON legacy."organization_id" = organization."id"
  AND legacy."key" = 'users.max'
-ON CONFLICT ("organization_id","key") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "entitlements" (
   "organization_id",
@@ -196,7 +196,7 @@ INSERT INTO "entitlements" (
 )
 SELECT organization."id", 'seats.light.max', true, 0, 'SYSTEM', now(), now()
 FROM "organizations" organization
-ON CONFLICT ("organization_id","key") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "entitlements" (
   "organization_id",
@@ -209,7 +209,7 @@ INSERT INTO "entitlements" (
 )
 SELECT organization."id", 'seats.attendance.max', true, NULL, 'SYSTEM', now(), now()
 FROM "organizations" organization
-ON CONFLICT ("organization_id","key") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "entitlements" (
   "organization_id",
@@ -222,4 +222,4 @@ INSERT INTO "entitlements" (
 )
 SELECT organization."id", 'seats.guest.max', true, NULL, 'SYSTEM', now(), now()
 FROM "organizations" organization
-ON CONFLICT ("organization_id","key") DO NOTHING;
+ON CONFLICT DO NOTHING;
