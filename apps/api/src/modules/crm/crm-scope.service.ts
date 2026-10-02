@@ -6,6 +6,7 @@ import {
   teamMembers,
 } from '../../platform/database/schema.js';
 import { staffProfiles } from '../staff/staff.schema.js';
+import { companies, contacts, deals, leads } from './crm.schema.js';
 
 export type CrmResourceScope =
   | 'OWN'
@@ -119,6 +120,85 @@ export class CrmScopeService {
         .map((row) => row.membershipId)
         .filter((value): value is string => Boolean(value)),
     };
+  }
+
+
+  async assertObjectAccess(
+    principal: Principal,
+    objectType: 'CONTACT' | 'COMPANY' | 'LEAD' | 'DEAL',
+    objectId: string,
+  ) {
+    const context = await this.resolve(principal);
+    if (context.scope === 'ORGANIZATION') return;
+
+    const row =
+      objectType === 'CONTACT'
+        ? (
+            await this.database.db
+              .select({
+                ownerMemberId: contacts.ownerMemberId,
+                workspaceId: contacts.workspaceId,
+              })
+              .from(contacts)
+              .where(
+                and(
+                  eq(contacts.organizationId, principal.organizationId),
+                  eq(contacts.id, objectId),
+                ),
+              )
+              .limit(1)
+          )[0]
+        : objectType === 'COMPANY'
+          ? (
+              await this.database.db
+                .select({
+                  ownerMemberId: companies.ownerMemberId,
+                  workspaceId: companies.workspaceId,
+                })
+                .from(companies)
+                .where(
+                  and(
+                    eq(companies.organizationId, principal.organizationId),
+                    eq(companies.id, objectId),
+                  ),
+                )
+                .limit(1)
+            )[0]
+          : objectType === 'LEAD'
+            ? (
+                await this.database.db
+                  .select({
+                    ownerMemberId: leads.ownerMemberId,
+                    workspaceId: leads.workspaceId,
+                  })
+                  .from(leads)
+                  .where(
+                    and(
+                      eq(leads.organizationId, principal.organizationId),
+                      eq(leads.id, objectId),
+                    ),
+                  )
+                  .limit(1)
+              )[0]
+            : (
+                await this.database.db
+                  .select({
+                    ownerMemberId: deals.ownerMemberId,
+                    workspaceId: deals.workspaceId,
+                  })
+                  .from(deals)
+                  .where(
+                    and(
+                      eq(deals.organizationId, principal.organizationId),
+                      eq(deals.id, objectId),
+                    ),
+                  )
+                  .limit(1)
+              )[0];
+
+    if (!row || !this.canReadRow(context, row)) {
+      throw new ForbiddenException('CRM object is outside the current permission scope.');
+    }
   }
 
   async assertAssignment(
