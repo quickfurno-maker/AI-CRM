@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
@@ -12,6 +12,7 @@ import {
   contacts,
 } from './crm.schema.js';
 import { CrmProvisioningService } from './crm-provisioning.service.js';
+import { CrmScopeService } from './crm-scope.service.js';
 import type {
   CreateCompanyDto,
   CreateContactDto,
@@ -26,20 +27,33 @@ export class ContactsService {
   constructor(
     private readonly database: DatabaseService,
     private readonly provisioning: CrmProvisioningService,
+    private readonly scope: CrmScopeService,
   ) {}
 
   async listContacts(principal: Principal, query: ListQueryDto) {
     const search = query.search?.trim();
-    const filter = search
-      ? and(
-          eq(contacts.organizationId, principal.organizationId),
-          or(
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(contacts.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(contacts.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
+    const filter = and(
+      eq(contacts.organizationId, principal.organizationId),
+      scopeFilter,
+      search
+        ? or(
             ilike(contacts.displayName, `%${search}%`),
             ilike(contacts.email, `%${search}%`),
             ilike(contacts.phone, `%${search}%`),
-          ),
-        )
-      : eq(contacts.organizationId, principal.organizationId);
+          )
+        : undefined,
+    );
 
     return this.database.db
       .select()
@@ -61,6 +75,10 @@ export class ContactsService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Contact not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Contact not found.');
+    }
     return rows[0];
   }
   async createContact(principal: Principal, dto: CreateContactDto) {
@@ -72,6 +90,7 @@ export class ContactsService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
 
     return this.database.db.transaction(async (tx) => {
       const [contact] = await tx
@@ -128,6 +147,11 @@ export class ContactsService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
 
     return this.database.db.transaction(async (tx) => {
       const [contact] = await tx
@@ -176,15 +200,27 @@ export class ContactsService {
 
   async listCompanies(principal: Principal, query: ListQueryDto) {
     const search = query.search?.trim();
-    const filter = search
-      ? and(
-          eq(companies.organizationId, principal.organizationId),
-          or(
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(companies.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(companies.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
+    const filter = and(
+      eq(companies.organizationId, principal.organizationId),
+      scopeFilter,
+      search
+        ? or(
             ilike(companies.name, `%${search}%`),
             ilike(companies.domain, `%${search}%`),
-          ),
-        )
-      : eq(companies.organizationId, principal.organizationId);
+          )
+        : undefined,
+    );
 
     return this.database.db
       .select()
@@ -206,6 +242,10 @@ export class ContactsService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Company not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Company not found.');
+    }
     return rows[0];
   }
 
@@ -218,6 +258,7 @@ export class ContactsService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
 
     return this.database.db.transaction(async (tx) => {
       const [company] = await tx
@@ -268,6 +309,11 @@ export class ContactsService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
 
     return this.database.db.transaction(async (tx) => {
       const [company] = await tx
