@@ -25,7 +25,7 @@ import { StaffService } from './staff.service.js';
 export class StaffController {
   constructor(private readonly staff: StaffService) {}
 
-  @Get()
+  @Get('profiles')
   @RequirePermission('staff.read')
   list(
     @CurrentPrincipal() principal: Principal,
@@ -34,7 +34,7 @@ export class StaffController {
     return this.staff.listStaff(principal, query);
   }
 
-  @Post()
+  @Post('profiles')
   @RequirePermission('staff.manage')
   create(
     @CurrentPrincipal() principal: Principal,
@@ -43,7 +43,7 @@ export class StaffController {
     return this.staff.createStaff(principal, dto);
   }
 
-  @Patch(':id')
+  @Patch('profiles/:id')
   @RequirePermission('staff.manage')
   update(
     @CurrentPrincipal() principal: Principal,
