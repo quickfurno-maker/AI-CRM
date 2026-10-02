@@ -78,6 +78,45 @@ export const saasPlanPrices = pgTable(
   ],
 );
 
+export const saasMeterPrices = pgTable(
+  'saas_meter_prices',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    planId: uuid('plan_id')
+      .notNull()
+      .references(() => plans.id, { onDelete: 'cascade' }),
+    meterKey: varchar('meter_key', { length: 160 }).notNull(),
+    unit: varchar('unit', { length: 40 }).default('unit').notNull(),
+    currency: varchar('currency', { length: 3 }).default('INR').notNull(),
+    includedQuantity: numeric('included_quantity', {
+      precision: 20,
+      scale: 6,
+    })
+      .default('0')
+      .notNull(),
+    unitAmount: numeric('unit_amount', { precision: 18, scale: 6 })
+      .default('0')
+      .notNull(),
+    warningThresholdPercent: integer('warning_threshold_percent')
+      .default(80)
+      .notNull(),
+    enforcementMode: varchar('enforcement_mode', { length: 24 })
+      .default('OVERAGE')
+      .notNull(),
+    isActive: boolean('is_active').default(false).notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('saas_meter_prices_plan_meter_currency_uq').on(
+      table.planId,
+      table.meterKey,
+      table.currency,
+    ),
+  ],
+);
+
 export const saasAddons = pgTable(
   'saas_addons',
   {
