@@ -27,6 +27,7 @@ import {
   users,
   workspaces,
 } from '../database/schema.js';
+import { memberSeatAssignments } from '../../modules/staff/staff.schema.js';
 import type { Principal } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { RefreshDto } from './dto/refresh.dto.js';
@@ -109,6 +110,14 @@ export class AuthService {
           isOwner: true,
         })
         .returning({ id: organizationMembers.id });
+
+      await tx.insert(memberSeatAssignments).values({
+        organizationId: organization.id,
+        organizationMemberId: membership.id,
+        accessClass: 'FULL',
+        status: 'ACTIVE',
+        assignedByMemberId: membership.id,
+      });
 
       await tx.insert(workspaces).values({
         organizationId: organization.id,
