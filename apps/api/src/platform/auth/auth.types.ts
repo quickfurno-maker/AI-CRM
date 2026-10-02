@@ -9,6 +9,8 @@ export type Principal = {
   authType?: 'SESSION' | 'API_KEY' | 'OAUTH';
   authScopes?: string[];
   seatClass?: 'FULL' | 'LIGHT' | 'ATTENDANCE_ONLY' | 'GUEST';
+  permissionKey?: string;
+  permissionScope?: 'OWN' | 'TEAM' | 'BRANCH' | 'WORKSPACE' | 'ORGANIZATION';
 };
 
 export type AccessTokenPayload = {
