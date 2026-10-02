@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, ilike } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, sql } from 'drizzle-orm';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
@@ -12,6 +12,7 @@ import {
 } from './crm.schema.js';
 import { CrmProvisioningService } from './crm-provisioning.service.js';
 import { CrmReferenceService } from './crm-reference.service.js';
+import { CrmScopeService } from './crm-scope.service.js';
 import type {
   CreateDealDto,
   CreateLeadDto,
@@ -26,6 +27,7 @@ export class SalesService {
     private readonly database: DatabaseService,
     private readonly provisioning: CrmProvisioningService,
     private readonly references: CrmReferenceService,
+    private readonly scope: CrmScopeService,
   ) {}
 
   async pipelines(
@@ -45,12 +47,24 @@ export class SalesService {
   }
 
   async listLeads(principal: Principal, query: ListQueryDto) {
-    const filter = query.search?.trim()
-      ? and(
-          eq(leads.organizationId, principal.organizationId),
-          ilike(leads.title, `%${query.search.trim()}%`),
-        )
-      : eq(leads.organizationId, principal.organizationId);
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(leads.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(leads.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
+    const filter = and(
+      eq(leads.organizationId, principal.organizationId),
+      scopeFilter,
+      query.search?.trim()
+        ? ilike(leads.title, `%${query.search.trim()}%`)
+        : undefined,
+    );
 
     return this.database.db
       .select()
@@ -72,6 +86,10 @@ export class SalesService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Lead not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Lead not found.');
+    }
     return rows[0];
   }
 
@@ -84,6 +102,7 @@ export class SalesService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
     const [contactId, companyId, pipeline] = await Promise.all([
       this.references.contact(principal.organizationId, dto.contactId),
       this.references.company(principal.organizationId, dto.companyId),
@@ -152,6 +171,11 @@ export class SalesService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
 
     const stage = dto.stageId
       ? await this.references.stage(
@@ -226,12 +250,24 @@ export class SalesService {
     });
   }
   async listDeals(principal: Principal, query: ListQueryDto) {
-    const filter = query.search?.trim()
-      ? and(
-          eq(deals.organizationId, principal.organizationId),
-          ilike(deals.name, `%${query.search.trim()}%`),
-        )
-      : eq(deals.organizationId, principal.organizationId);
+    const scope = await this.scope.resolve(principal);
+    const scopeFilter =
+      scope.scope === 'ORGANIZATION'
+        ? undefined
+        : scope.scope === 'WORKSPACE'
+          ? scope.workspaceId
+            ? eq(deals.workspaceId, scope.workspaceId)
+            : sql`false`
+          : scope.ownerMemberIds?.length
+            ? inArray(deals.ownerMemberId, scope.ownerMemberIds)
+            : sql`false`;
+    const filter = and(
+      eq(deals.organizationId, principal.organizationId),
+      scopeFilter,
+      query.search?.trim()
+        ? ilike(deals.name, `%${query.search.trim()}%`)
+        : undefined,
+    );
 
     return this.database.db
       .select()
@@ -253,6 +289,10 @@ export class SalesService {
       )
       .limit(1);
     if (!rows[0]) throw new NotFoundException('Deal not found.');
+    const scope = await this.scope.resolve(principal);
+    if (!this.scope.canReadRow(scope, rows[0])) {
+      throw new NotFoundException('Deal not found.');
+    }
     return rows[0];
   }
 
@@ -265,6 +305,7 @@ export class SalesService {
       principal.organizationId,
       dto.ownerMemberId ?? principal.membershipId,
     );
+    await this.scope.assertAssignment(principal, ownerMemberId, workspaceId);
     const [contactId, companyId, leadId, pipeline] = await Promise.all([
       this.references.contact(principal.organizationId, dto.contactId),
       this.references.company(principal.organizationId, dto.companyId),
@@ -333,6 +374,11 @@ export class SalesService {
             principal.organizationId,
             dto.ownerMemberId,
           );
+    await this.scope.assertAssignment(
+      principal,
+      ownerMemberId,
+      before.workspaceId,
+    );
     const stage = dto.stageId
       ? await this.references.stage(
           principal.organizationId,
