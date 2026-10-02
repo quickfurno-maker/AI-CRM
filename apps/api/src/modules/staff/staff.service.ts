@@ -13,6 +13,7 @@ import {
   entitlements,
   organizationMembers,
   outboxEvents,
+  sessions,
   users,
   workspaces,
 } from '../../platform/database/schema.js';
@@ -453,6 +454,11 @@ export class StaffService {
         'A seat can only be assigned to an active membership.',
       );
     }
+    if (member.isOwner && dto.accessClass !== 'FULL') {
+      throw new BadRequestException(
+        'The organization owner must retain a FULL product seat.',
+      );
+    }
 
     const existingRows = await this.database.db
       .select()
@@ -618,6 +624,16 @@ export class StaffService {
         })
         .where(eq(memberSeatAssignments.id, existing.id))
         .returning();
+
+      await tx
+        .update(sessions)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessions.organizationId, principal.organizationId),
+            eq(sessions.organizationMemberId, membershipId),
+          ),
+        );
 
       await tx.insert(auditLogs).values({
         organizationId: principal.organizationId,
