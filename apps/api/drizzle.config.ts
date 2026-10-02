@@ -12,6 +12,7 @@ export default defineConfig({
     './src/modules/developer/developer.schema.ts',
     './src/modules/enterprise/enterprise.schema.ts',
     './src/modules/staff/staff.schema.ts',
+    './src/modules/team-admin/team-admin.schema.ts',
     './src/extensions/attendance/attendance.schema.ts',
   ],
   out: './drizzle',
