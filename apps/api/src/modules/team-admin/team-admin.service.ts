@@ -17,6 +17,7 @@ import {
   entitlements,
   memberRoles,
   organizationMembers,
+  organizations,
   outboxEvents,
   permissions,
   rolePermissions,
@@ -304,15 +305,12 @@ export class TeamAdminService {
     const rows = await this.database.db
       .select({
         invitation: organizationInvitations,
-        organizationSlug: this.database.schema.organizations.slug,
+        organizationSlug: organizations.slug,
       })
       .from(organizationInvitations)
       .innerJoin(
-        this.database.schema.organizations,
-        eq(
-          this.database.schema.organizations.id,
-          organizationInvitations.organizationId,
-        ),
+        organizations,
+        eq(organizations.id, organizationInvitations.organizationId),
       )
       .where(
         and(
