@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -27,7 +28,16 @@ type SessionData = {
   };
 };
 
-const nav = ['Command Center', 'CRM', 'Inbox', 'AI Agents', 'Automations', 'Attendance', 'Billing', 'Analytics'];
+const nav = [
+  { label: 'Command Center', href: '/dashboard', active: true },
+  { label: 'CRM', href: '/crm', active: false },
+  { label: 'Inbox' },
+  { label: 'AI Agents' },
+  { label: 'Automations' },
+  { label: 'Attendance' },
+  { label: 'Billing' },
+  { label: 'Analytics' },
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -75,20 +85,38 @@ export default function DashboardPage() {
             <div className="mt-1 text-xs text-zinc-500">{org.slug}</div>
           </div>
           <nav className="space-y-1">
-            {nav.map((item, index) => (
-              <div key={item} className={`rounded-xl px-3 py-2.5 text-sm ${index === 0 ? 'bg-white/10 text-white' : 'text-zinc-500'}`}>
-                {item}
-              </div>
-            ))}
+            {nav.map((item) =>
+              item.href ? (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className={
+                    'block rounded-xl px-3 py-2.5 text-sm ' +
+                    (item.active
+                      ? 'bg-white/10 text-white'
+                      : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300')
+                  }
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <div
+                  key={item.label}
+                  className="rounded-xl px-3 py-2.5 text-sm text-zinc-600"
+                >
+                  {item.label}
+                </div>
+              ),
+            )}
           </nav>
         </aside>
 
         <section className="p-5 sm:p-8 lg:p-10">
           <header className="flex items-start justify-between gap-4 border-b border-white/10 pb-7">
             <div>
-              <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">Phase 1 · SaaS Foundation</div>
+              <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">Business OS · Core Platform</div>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">Command Center</h1>
-              <p className="mt-2 text-sm text-zinc-500">Tenant foundation is active. CRM modules begin in Phase 2.</p>
+              <p className="mt-2 text-sm text-zinc-500">Tenant foundation is active and the Core CRM workspace is available.</p>
             </div>
             <button onClick={logout} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">Sign out</button>
           </header>

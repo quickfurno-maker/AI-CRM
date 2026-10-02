@@ -8,6 +8,13 @@
       "when": 1790914782837,
       "tag": "0000_legal_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790918373274,
+      "tag": "0001_dizzy_eternity",
+      "breakpoints": true
     }
   ]
 }

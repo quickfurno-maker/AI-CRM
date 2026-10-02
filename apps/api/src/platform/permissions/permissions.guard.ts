@@ -38,14 +38,23 @@ export class PermissionsGuard implements CanActivate {
     if (!principal) throw new ForbiddenException('Missing tenant principal.');
     if (principal.isPlatformAdmin) return true;
 
-    const allowed = await this.permissions.hasPermission({
+    const scope = await this.permissions.getPermissionScope({
       organizationId: principal.organizationId,
       membershipId: principal.membershipId,
       permission,
     });
 
-    if (!allowed) {
+    if (!scope) {
       throw new ForbiddenException('Permission denied.');
+    }
+
+    // Phase 2 deliberately fails closed for narrower data scopes. The
+    // repository layer must implement OWN/TEAM/BRANCH/WORKSPACE filters
+    // before those scopes are allowed through this global guard.
+    if (scope !== 'ORGANIZATION') {
+      throw new ForbiddenException(
+        'This permission scope is not enabled for this module yet.',
+      );
     }
     return true;
   }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { CrmModule } from './modules/crm/crm.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
@@ -30,6 +31,7 @@ import { PermissionsModule } from './platform/permissions/permissions.module.js'
     OutboxModule,
     AuthModule,
     HealthModule,
+    CrmModule,
     OrganizationsModule,
     PlatformAdminModule,
   ],

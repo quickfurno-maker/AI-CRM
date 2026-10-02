@@ -9,7 +9,7 @@ import type { Pool as PgPool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseService } from '../src/platform/database/database.service.js';
-import * as schema from '../src/platform/database/schema.js';
+import * as schema from '../src/platform/database/all-schema.js';
 
 type Registration = {
   organization: { id: string; name: string; slug: string };
@@ -66,11 +66,15 @@ describe('Phase 1 SaaS foundation', () => {
     pool = rawPool;
 
     const migrationDirectory = resolve(process.cwd(), 'drizzle');
-    const migrationName = readdirSync(migrationDirectory).find((name) => name.endsWith('.sql'));
-    if (!migrationName) throw new Error('No generated SQL migration found.');
-    const migration = readFileSync(resolve(migrationDirectory, migrationName), 'utf8');
-    for (const statement of migration.split('--> statement-breakpoint')) {
-      if (statement.trim()) await pool.query(statement);
+    const migrationNames = readdirSync(migrationDirectory)
+      .filter((name) => name.endsWith('.sql'))
+      .sort();
+    if (!migrationNames.length) throw new Error('No generated SQL migration found.');
+    for (const migrationName of migrationNames) {
+      const migration = readFileSync(resolve(migrationDirectory, migrationName), 'utf8');
+      for (const statement of migration.split('--> statement-breakpoint')) {
+        if (statement.trim()) await pool.query(statement);
+      }
     }
 
     const drizzlePool = {
@@ -205,5 +209,142 @@ describe('Phase 1 SaaS foundation', () => {
       .get('/v1/organization/current')
       .set('authorization', `Bearer ${refresh.body.accessToken as string}`)
       .expect(401);
+  });
+
+  it('runs CRM workflows without crossing tenant boundaries', async () => {
+    const tenantC = await register({
+      email: 'crm-c@example.com',
+      organizationName: 'CRM Tenant C',
+      organizationSlug: 'crm-tenant-c',
+    });
+    const tenantD = await register({
+      email: 'crm-d@example.com',
+      organizationName: 'CRM Tenant D',
+      organizationSlug: 'crm-tenant-d',
+    });
+    const authC = { authorization: `Bearer ${tenantC.tokens.accessToken}` };
+    const authD = { authorization: `Bearer ${tenantD.tokens.accessToken}` };
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authC)
+      .send({
+        displayName: 'Rahul Sharma',
+        email: 'rahul@example.com',
+        phone: '9876543210',
+        source: 'META',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get(`/v1/crm/contacts/${contact.body.id as string}`)
+      .set(authD)
+      .expect(404);
+
+    const company = await request(app.getHttpServer())
+      .post('/v1/crm/companies')
+      .set(authC)
+      .send({
+        name: 'Acme Developers',
+        industry: 'Real Estate',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/v1/crm/contacts/${contact.body.id as string}/companies`)
+      .set(authC)
+      .send({
+        companyId: company.body.id,
+        relationship: 'Buyer at company',
+        isPrimary: true,
+      })
+      .expect(201);
+
+    const contactCompanies = await request(app.getHttpServer())
+      .get(`/v1/crm/contacts/${contact.body.id as string}/companies`)
+      .set(authC)
+      .expect(200);
+    expect(contactCompanies.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          companyId: company.body.id,
+          isPrimary: true,
+        }),
+      ]),
+    );
+
+    await request(app.getHttpServer())
+      .post('/v1/crm/leads')
+      .set(authD)
+      .send({
+        title: 'Illegal cross-tenant lead',
+        contactId: contact.body.id,
+      })
+      .expect(404);
+
+    const lead = await request(app.getHttpServer())
+      .post('/v1/crm/leads')
+      .set(authC)
+      .send({
+        title: '3 BHK enquiry',
+        contactId: contact.body.id,
+        source: 'META',
+        estimatedValue: '12500000',
+        temperature: 'HOT',
+      })
+      .expect(201);
+
+    const leadPipeline = await request(app.getHttpServer())
+      .get('/v1/crm/pipelines?objectType=LEAD')
+      .set(authC)
+      .expect(200);
+    const qualifiedStage = leadPipeline.body.stages.find(
+      (stage: { key: string }) => stage.key === 'qualified',
+    );
+    expect(qualifiedStage).toBeTruthy();
+
+    const qualifiedLead = await request(app.getHttpServer())
+      .patch(`/v1/crm/leads/${lead.body.id as string}`)
+      .set(authC)
+      .send({ stageId: qualifiedStage.id })
+      .expect(200);
+    expect(qualifiedLead.body.status).toBe('QUALIFIED');
+
+    const deal = await request(app.getHttpServer())
+      .post('/v1/crm/deals')
+      .set(authC)
+      .send({
+        name: 'Rahul property deal',
+        leadId: lead.body.id,
+        contactId: contact.body.id,
+        amount: '12500000',
+      })
+      .expect(201);
+
+    const dealPipeline = await request(app.getHttpServer())
+      .get('/v1/crm/pipelines?objectType=DEAL')
+      .set(authC)
+      .expect(200);
+    const wonStage = dealPipeline.body.stages.find(
+      (stage: { key: string }) => stage.key === 'won',
+    );
+
+    const wonDeal = await request(app.getHttpServer())
+      .patch(`/v1/crm/deals/${deal.body.id as string}`)
+      .set(authC)
+      .send({ stageId: wonStage.id })
+      .expect(200);
+    expect(wonDeal.body.status).toBe('WON');
+    expect(wonDeal.body.probability).toBe(100);
+
+    await request(app.getHttpServer())
+      .post('/v1/crm/tasks')
+      .set(authC)
+      .send({
+        title: 'Prepare booking documents',
+        dealId: deal.body.id,
+        priority: 'HIGH',
+      })
+      .expect(201);
   });
 });
