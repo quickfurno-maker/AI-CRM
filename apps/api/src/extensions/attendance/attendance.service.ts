@@ -27,6 +27,7 @@ import {
   workspaces,
 } from '../../platform/database/schema.js';
 import { EntitlementsService } from '../../platform/entitlements/entitlements.service.js';
+import { staffProfiles } from '../../modules/staff/staff.schema.js';
 import type {
   AdminPunchDto,
   AssignShiftDto,
@@ -269,18 +270,74 @@ export class AttendanceService {
 
   async createEmployee(principal: Principal, dto: CreateEmployeeDto) {
     await this.assertEnabled(principal);
+
+    const employeeCode = dto.employeeCode.trim();
+    const linkedStaffRows = dto.staffProfileId
+      ? await this.database.db
+          .select()
+          .from(staffProfiles)
+          .where(
+            and(
+              eq(staffProfiles.organizationId, principal.organizationId),
+              eq(staffProfiles.id, dto.staffProfileId),
+            ),
+          )
+          .limit(1)
+      : dto.organizationMemberId
+        ? await this.database.db
+            .select()
+            .from(staffProfiles)
+            .where(
+              and(
+                eq(staffProfiles.organizationId, principal.organizationId),
+                eq(
+                  staffProfiles.organizationMemberId,
+                  dto.organizationMemberId,
+                ),
+              ),
+            )
+            .limit(1)
+        : await this.database.db
+            .select()
+            .from(staffProfiles)
+            .where(
+              and(
+                eq(staffProfiles.organizationId, principal.organizationId),
+                eq(staffProfiles.employeeCode, employeeCode),
+              ),
+            )
+            .limit(1);
+    const linkedStaff = linkedStaffRows[0];
+
+    if (dto.staffProfileId && !linkedStaff) {
+      throw new NotFoundException('Staff profile not found.');
+    }
+    if (linkedStaff && linkedStaff.employeeCode !== employeeCode) {
+      throw new BadRequestException(
+        'Attendance employee code must match the linked staff profile.',
+      );
+    }
+
     const branch = dto.branchId
       ? await this.resolveBranch(principal, dto.branchId)
-      : undefined;
+      : linkedStaff?.branchId
+        ? await this.resolveBranch(principal, linkedStaff.branchId)
+        : undefined;
     const department = dto.departmentId
       ? await this.getDepartment(principal, dto.departmentId)
       : undefined;
     const workspaceId = dto.workspaceId
       ? await this.resolveWorkspace(principal, dto.workspaceId)
-      : department?.workspaceId ??
+      : linkedStaff?.workspaceId ??
+        department?.workspaceId ??
         branch?.workspaceId ??
         await this.resolveWorkspace(principal);
 
+    if (linkedStaff && linkedStaff.workspaceId !== workspaceId) {
+      throw new BadRequestException(
+        'Attendance profile must use the linked staff workspace.',
+      );
+    }
     if (branch && branch.workspaceId !== workspaceId) {
       throw new BadRequestException('Employee workspace must match branch.');
     }
@@ -295,24 +352,74 @@ export class AttendanceService {
         'Employee department does not belong to the selected workspace/branch.',
       );
     }
-    if (dto.organizationMemberId) {
-      await this.resolveMember(principal, dto.organizationMemberId);
+
+    const organizationMemberId =
+      dto.organizationMemberId ?? linkedStaff?.organizationMemberId ?? undefined;
+    const managerMemberId =
+      dto.managerMemberId ?? linkedStaff?.managerMemberId ?? undefined;
+    if (organizationMemberId) {
+      await this.resolveMember(principal, organizationMemberId);
     }
-    if (dto.managerMemberId) {
-      await this.resolveMember(principal, dto.managerMemberId);
+    if (managerMemberId) {
+      await this.resolveMember(principal, managerMemberId);
     }
 
+    const effectiveBranchId =
+      dto.branchId ?? department?.branchId ?? linkedStaff?.branchId ?? undefined;
+
     return this.database.db.transaction(async (tx) => {
+      const [staffProfile] = linkedStaff
+        ? await tx
+            .update(staffProfiles)
+            .set({
+              branchId: effectiveBranchId,
+              organizationMemberId,
+              managerMemberId,
+              displayName: dto.displayName.trim(),
+              email: dto.email?.trim().toLowerCase() ?? linkedStaff.email,
+              phone: dto.phone?.trim() ?? linkedStaff.phone,
+              designation:
+                dto.designation?.trim() ?? linkedStaff.designation,
+              department: department?.name ?? linkedStaff.department,
+              employmentType:
+                dto.employmentType ?? linkedStaff.employmentType,
+              joiningDate: dto.joiningDate ?? linkedStaff.joiningDate,
+              metadata: dto.metadata ?? linkedStaff.metadata,
+              updatedAt: new Date(),
+            })
+            .where(eq(staffProfiles.id, linkedStaff.id))
+            .returning()
+        : await tx
+            .insert(staffProfiles)
+            .values({
+              organizationId: principal.organizationId,
+              workspaceId,
+              branchId: effectiveBranchId,
+              organizationMemberId,
+              managerMemberId,
+              employeeCode,
+              displayName: dto.displayName.trim(),
+              email: dto.email?.trim().toLowerCase(),
+              phone: dto.phone?.trim(),
+              designation: dto.designation?.trim(),
+              department: department?.name,
+              employmentType: dto.employmentType ?? 'FULL_TIME',
+              joiningDate: dto.joiningDate,
+              metadata: dto.metadata,
+            })
+            .returning();
+
       const [row] = await tx
         .insert(attendanceEmployees)
         .values({
           organizationId: principal.organizationId,
           workspaceId,
-          branchId: dto.branchId ?? department?.branchId,
+          branchId: effectiveBranchId,
           departmentId: dto.departmentId,
-          organizationMemberId: dto.organizationMemberId,
-          managerMemberId: dto.managerMemberId,
-          employeeCode: dto.employeeCode.trim(),
+          staffProfileId: staffProfile.id,
+          organizationMemberId,
+          managerMemberId,
+          employeeCode,
           displayName: dto.displayName.trim(),
           email: dto.email?.trim().toLowerCase(),
           phone: dto.phone?.trim(),
@@ -322,18 +429,35 @@ export class AttendanceService {
           metadata: dto.metadata,
         })
         .returning();
-      await tx.insert(outboxEvents).values({
-        organizationId: principal.organizationId,
-        eventType: 'attendance.employee.created.v1',
-        aggregateType: 'attendance_employee',
-        aggregateId: row.id,
-        payload: {
-          employeeId: row.id,
-          branchId: row.branchId,
-          departmentId: row.departmentId,
-          organizationMemberId: row.organizationMemberId,
+
+      await tx.insert(outboxEvents).values([
+        {
+          organizationId: principal.organizationId,
+          eventType: linkedStaff
+            ? 'identity.staff.attendance_enabled.v1'
+            : 'identity.staff.created.v1',
+          aggregateType: 'staff_profile',
+          aggregateId: staffProfile.id,
+          payload: {
+            staffProfileId: staffProfile.id,
+            attendanceEmployeeId: row.id,
+            seatAssigned: false,
+          },
         },
-      });
+        {
+          organizationId: principal.organizationId,
+          eventType: 'attendance.employee.created.v1',
+          aggregateType: 'attendance_employee',
+          aggregateId: row.id,
+          payload: {
+            employeeId: row.id,
+            staffProfileId: row.staffProfileId,
+            branchId: row.branchId,
+            departmentId: row.departmentId,
+            organizationMemberId: row.organizationMemberId,
+          },
+        },
+      ]);
       await this.audit(
         tx,
         principal,
@@ -384,11 +508,7 @@ export class AttendanceService {
         'Department does not belong to selected branch.',
       );
     }
-    if (
-      !branch &&
-      department?.branchId &&
-      dto.departmentId
-    ) {
+    if (!branch && department?.branchId && dto.departmentId) {
       throw new BadRequestException(
         'A branch-specific department requires the employee to use the same branch.',
       );
@@ -397,11 +517,7 @@ export class AttendanceService {
       await this.resolveMember(principal, dto.managerMemberId);
     }
     const exitDate = dto.exitDate ?? before.exitDate ?? undefined;
-    if (
-      exitDate &&
-      before.joiningDate &&
-      exitDate < before.joiningDate
-    ) {
+    if (exitDate && before.joiningDate && exitDate < before.joiningDate) {
       throw new BadRequestException(
         'Employee exit date cannot be before joining date.',
       );
@@ -436,6 +552,32 @@ export class AttendanceService {
           ),
         )
         .returning();
+
+      if (row.staffProfileId) {
+        await tx
+          .update(staffProfiles)
+          .set({
+            branchId: row.branchId,
+            managerMemberId: row.managerMemberId,
+            displayName: row.displayName,
+            email: row.email,
+            phone: row.phone,
+            designation: row.designation,
+            department: department?.name,
+            employmentType: row.employmentType,
+            status: row.status,
+            exitDate: row.exitDate,
+            metadata: row.metadata,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(staffProfiles.organizationId, principal.organizationId),
+              eq(staffProfiles.id, row.staffProfileId),
+            ),
+          );
+      }
+
       await tx.insert(outboxEvents).values({
         organizationId: principal.organizationId,
         eventType: 'attendance.employee.updated.v1',
@@ -443,6 +585,7 @@ export class AttendanceService {
         aggregateId: row.id,
         payload: {
           employeeId: row.id,
+          staffProfileId: row.staffProfileId,
           status: row.status,
           branchId: row.branchId,
           departmentId: row.departmentId,
