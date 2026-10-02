@@ -23,6 +23,34 @@ const createdAt = () =>
 const updatedAt = () =>
   timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
 
+export const saasCustomerBillingProfiles = pgTable(
+  'saas_customer_billing_profiles',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    legalName: varchar('legal_name', { length: 240 }).notNull(),
+    billingEmail: varchar('billing_email', { length: 320 }).notNull(),
+    billingPhone: varchar('billing_phone', { length: 40 }),
+    taxId: varchar('tax_id', { length: 120 }),
+    addressLine1: varchar('address_line_1', { length: 240 }),
+    addressLine2: varchar('address_line_2', { length: 240 }),
+    city: varchar('city', { length: 120 }),
+    state: varchar('state', { length: 120 }),
+    postalCode: varchar('postal_code', { length: 32 }),
+    country: varchar('country', { length: 2 }).default('IN').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('saas_customer_billing_profiles_org_uq').on(
+      table.organizationId,
+    ),
+  ],
+);
+
 export const saasPlanPrices = pgTable(
   'saas_plan_prices',
   {
