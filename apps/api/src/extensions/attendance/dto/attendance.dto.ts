@@ -47,6 +47,7 @@ export class CreateEmployeeDto {
   @IsOptional() @IsUUID() workspaceId?: string;
   @IsOptional() @IsUUID() branchId?: string;
   @IsOptional() @IsUUID() departmentId?: string;
+  @IsOptional() @IsUUID() staffProfileId?: string;
   @IsOptional() @IsUUID() organizationMemberId?: string;
   @IsOptional() @IsUUID() managerMemberId?: string;
   @IsString() @MinLength(1) @MaxLength(64) employeeCode: string;
