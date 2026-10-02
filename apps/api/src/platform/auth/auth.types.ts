@@ -8,6 +8,7 @@ export type Principal = {
   actorId?: string;
   authType?: 'SESSION' | 'API_KEY' | 'OAUTH';
   authScopes?: string[];
+  seatClass?: 'FULL' | 'LIGHT' | 'ATTENDANCE_ONLY' | 'GUEST';
 };
 
 export type AccessTokenPayload = {
