@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { newDb, DataType } from 'pg-mem';
 import { createHmac, randomUUID } from 'node:crypto';
+import { hash } from 'bcryptjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Pool as PgPool } from 'pg';
@@ -3868,14 +3869,17 @@ describe('Phase 1 SaaS foundation', () => {
     expect(reusedStaff.body).toHaveLength(1);
     expect(reusedStaff.body[0].id).toBe(staff.body.id);
 
+    const memberPassword = 'SeatPassword123!';
+    const memberPasswordHash = await hash(memberPassword, 4);
+
     async function createMember(label: string) {
       const userId = randomUUID();
       const membershipId = randomUUID();
       await pool.query(
         `insert into users
-          (id, email, display_name, created_at, updated_at)
+          (id, email, password_hash, display_name, created_at, updated_at)
          values
-          ('${userId}', '${label}@phase10d.example.com', '${label}', now(), now())`,
+          ('${userId}', '${label}@phase10d.example.com', '${memberPasswordHash}', '${label}', now(), now())`,
       );
       await pool.query(
         `insert into organization_members
@@ -3887,6 +3891,16 @@ describe('Phase 1 SaaS foundation', () => {
     }
 
     const attendanceMember = await createMember('attendance-seat-user');
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({
+        email: 'attendance-seat-user@phase10d.example.com',
+        password: memberPassword,
+        organizationSlug: 'phase10d-tenant',
+      })
+      .expect(401);
+
     await request(app.getHttpServer())
       .patch(`/v1/staff/profiles/${staff.body.id as string}`)
       .set(auth)
@@ -3926,6 +3940,22 @@ describe('Phase 1 SaaS foundation', () => {
         .expect(200);
     }
 
+    const memberLogin = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({
+        email: 'full-seat-b@phase10d.example.com',
+        password: memberPassword,
+        organizationSlug: 'phase10d-tenant',
+      })
+      .expect(201);
+    const memberAuth = {
+      authorization: `Bearer ${memberLogin.body.tokens.accessToken as string}`,
+    };
+    await request(app.getHttpServer())
+      .get('/v1/capabilities')
+      .set(memberAuth)
+      .expect(200);
+
     const atLimit = await request(app.getHttpServer())
       .get('/v1/staff/seats/summary')
       .set(auth)
@@ -3943,6 +3973,15 @@ describe('Phase 1 SaaS foundation', () => {
       .delete(`/v1/staff/members/${fullMemberB}/seat`)
       .set(auth)
       .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/v1/capabilities')
+      .set(memberAuth)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/v1/auth/refresh')
+      .send({ refreshToken: memberLogin.body.tokens.refreshToken })
+      .expect(401);
 
     await request(app.getHttpServer())
       .put(`/v1/staff/members/${overflowMember}/seat`)
