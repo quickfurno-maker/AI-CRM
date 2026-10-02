@@ -55,6 +55,10 @@ describe('Phase 1 SaaS foundation', () => {
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.JWT_ACCESS_SECRET = 'test-secret-that-is-long-enough-for-phase-one';
+    process.env.PLATFORM_SECRET_ENCRYPTION_KEY =
+      'test-platform-encryption-key-that-is-long-enough';
+    process.env.PUBLIC_API_ORIGIN = 'http://localhost:4000';
+    process.env.WEB_APP_ORIGIN = 'http://localhost:3000';
     process.env.META_TRANSPORT_MODE = 'mock';
     process.env.META_GRAPH_VERSION = 'v99.0';
     process.env.META_APP_ID = 'test-meta-app';
@@ -130,6 +134,10 @@ describe('Phase 1 SaaS foundation', () => {
     const testConfig: Record<string, unknown> = {
       NODE_ENV: 'test',
       JWT_ACCESS_SECRET: 'test-secret-that-is-long-enough-for-phase-one',
+      PLATFORM_SECRET_ENCRYPTION_KEY:
+        'test-platform-encryption-key-that-is-long-enough',
+      PUBLIC_API_ORIGIN: 'http://localhost:4000',
+      WEB_APP_ORIGIN: 'http://localhost:3000',
       JWT_ACCESS_TTL_SECONDS: 900,
       META_TRANSPORT_MODE: 'mock',
       META_GRAPH_VERSION: 'v99.0',
@@ -3370,5 +3378,395 @@ describe('Phase 1 SaaS foundation', () => {
       )
       .set(authR)
       .expect(400);
+  });
+
+  it('certifies Phase 9 developer marketplace and enterprise platform expansion', async () => {
+    const platformAdmin = await register({
+      email: 'phase9-platform-admin@example.com',
+      organizationName: 'Phase 9 Platform Admin',
+      organizationSlug: 'phase9-platform-admin',
+    });
+    await pool.query(
+      `update users
+       set is_platform_admin = true, updated_at = now()
+       where email = 'phase9-platform-admin@example.com'`,
+    );
+    const authAdmin = {
+      authorization: `Bearer ${platformAdmin.tokens.accessToken}`,
+    };
+
+    const tenantT = await register({
+      email: 'phase9-tenant@example.com',
+      organizationName: 'Phase 9 Tenant',
+      organizationSlug: 'phase9-tenant',
+    });
+    const authT = {
+      authorization: `Bearer ${tenantT.tokens.accessToken}`,
+    };
+
+    await request(app.getHttpServer())
+      .get('/v1/developer/api-keys')
+      .set(authT)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/v1/enterprise/security-policy')
+      .set(authT)
+      .expect(403);
+
+    for (const key of [
+      'core.api',
+      'marketplace.enabled',
+      'enterprise.controls',
+    ]) {
+      const enabled = await request(app.getHttpServer())
+        .put(
+          `/v1/platform-admin/organizations/${tenantT.organization.id}/addons/${key}`,
+        )
+        .set(authAdmin)
+        .send({ enabled: true })
+        .expect(200);
+      expect(enabled.body).toMatchObject({
+        key,
+        enabled: true,
+        source: 'ADDON',
+      });
+    }
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authT)
+      .send({
+        displayName: 'Phase Nine Contact',
+        email: 'contact@example.com',
+        source: 'API_CERTIFICATION',
+      })
+      .expect(201);
+
+    const apiKey = await request(app.getHttpServer())
+      .post('/v1/developer/api-keys')
+      .set(authT)
+      .send({
+        name: 'Read Contacts Key',
+        scopes: ['crm.contact.read'],
+      })
+      .expect(201);
+    expect(apiKey.body.secret).toMatch(/^crmkey_/);
+    expect(apiKey.body.keyPrefix).toBeTruthy();
+
+    const apiKeyAuth = { 'x-api-key': apiKey.body.secret as string };
+    const contactsViaKey = await request(app.getHttpServer())
+      .get('/v1/crm/contacts?limit=10')
+      .set(apiKeyAuth)
+      .expect(200);
+    expect(
+      contactsViaKey.body.some(
+        (row: { id: string }) => row.id === contact.body.id,
+      ),
+    ).toBe(true);
+
+    await request(app.getHttpServer())
+      .get('/v1/crm/leads?limit=10')
+      .set(apiKeyAuth)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/v1/developer/api-keys')
+      .set(apiKeyAuth)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post(`/v1/developer/api-keys/${apiKey.body.id as string}/revoke`)
+      .set(authT)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/v1/crm/contacts?limit=10')
+      .set(apiKeyAuth)
+      .expect(401);
+
+    const oauthClient = await request(app.getHttpServer())
+      .post('/v1/developer/oauth-clients')
+      .set(authT)
+      .send({
+        name: 'Phase Nine Server App',
+        scopes: ['crm.contact.read'],
+      })
+      .expect(201);
+    expect(oauthClient.body.clientId).toMatch(/^crm_client_/);
+    expect(oauthClient.body.clientSecret).toMatch(/^crmsecret_/);
+
+    const oauthToken = await request(app.getHttpServer())
+      .post('/v1/developer/oauth/token')
+      .send({
+        clientId: oauthClient.body.clientId,
+        clientSecret: oauthClient.body.clientSecret,
+      })
+      .expect(201);
+    expect(oauthToken.body.access_token).toMatch(/^crmoauth_/);
+    expect(oauthToken.body.scope).toBe('crm.contact.read');
+
+    const oauthAuth = {
+      authorization: `Bearer ${oauthToken.body.access_token as string}`,
+    };
+    await request(app.getHttpServer())
+      .get('/v1/crm/contacts?limit=10')
+      .set(oauthAuth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/v1/crm/leads?limit=10')
+      .set(oauthAuth)
+      .expect(403);
+
+    const rotatedClient = await request(app.getHttpServer())
+      .post(
+        `/v1/developer/oauth-clients/${oauthClient.body.id as string}/rotate-secret`,
+      )
+      .set(authT)
+      .expect(201);
+    expect(rotatedClient.body.clientSecret).not.toBe(
+      oauthClient.body.clientSecret,
+    );
+
+    await request(app.getHttpServer())
+      .get('/v1/crm/contacts?limit=10')
+      .set(oauthAuth)
+      .expect(401);
+
+    const webhook = await request(app.getHttpServer())
+      .post('/v1/developer/webhooks')
+      .set(authT)
+      .send({
+        name: 'Phase Nine Webhook',
+        url: 'https://example.com/crm-ai-hook',
+        events: ['crm.contact.created.v1'],
+      })
+      .expect(201);
+    expect(webhook.body.signingSecret).toMatch(/^whsec_/);
+
+    const webhookRows = await request(app.getHttpServer())
+      .get('/v1/developer/webhooks')
+      .set(authT)
+      .expect(200);
+    expect(webhookRows.body[0]).not.toHaveProperty('signingSecret');
+    expect(webhookRows.body[0]).not.toHaveProperty(
+      'signingSecretCiphertext',
+    );
+
+    const rotatedWebhook = await request(app.getHttpServer())
+      .post(
+        `/v1/developer/webhooks/${webhook.body.id as string}/rotate-secret`,
+      )
+      .set(authT)
+      .expect(201);
+    expect(rotatedWebhook.body.signingSecret).toMatch(/^whsec_/);
+    expect(rotatedWebhook.body.signingSecret).not.toBe(
+      webhook.body.signingSecret,
+    );
+
+    const marketplaceDraft = await request(app.getHttpServer())
+      .post('/v1/platform-admin/marketplace/extensions')
+      .set(authAdmin)
+      .send({
+        key: 'phase9-contact-reader',
+        name: 'Phase 9 Contact Reader',
+        version: '1.0.0',
+        publisher: 'Phase 9 Labs',
+        description:
+          'External integration used to certify the governed extension marketplace.',
+        category: 'INTEGRATION',
+        requiredScopes: ['crm.contact.read'],
+        eventSubscriptions: ['crm.contact.created.v1'],
+        manifest: {
+          schemaVersion: '1',
+          key: 'phase9-contact-reader',
+          name: 'Phase 9 Contact Reader',
+          version: '1.0.0',
+          publisher: 'Phase 9 Labs',
+          description:
+            'External integration used to certify the governed extension marketplace.',
+          category: 'INTEGRATION',
+          apiScopes: ['crm.contact.read'],
+          eventSubscriptions: ['crm.contact.created.v1'],
+        },
+      })
+      .expect(201);
+    expect(marketplaceDraft.body.status).toBe('DRAFT');
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/platform-admin/marketplace/extensions/${marketplaceDraft.body.id as string}/status`,
+      )
+      .set(authAdmin)
+      .send({ status: 'PUBLISHED' })
+      .expect(200);
+
+    const catalog = await request(app.getHttpServer())
+      .get('/v1/marketplace')
+      .set(authT)
+      .expect(200);
+    const catalogItem = catalog.body.find(
+      (item: { key: string }) => item.key === 'phase9-contact-reader',
+    );
+    expect(catalogItem).toMatchObject({
+      kind: 'MARKETPLACE',
+      installed: false,
+      status: 'PUBLISHED',
+    });
+
+    const installed = await request(app.getHttpServer())
+      .post(
+        `/v1/marketplace/${marketplaceDraft.body.id as string}/install`,
+      )
+      .set(authT)
+      .send({ scopes: ['crm.contact.read'] })
+      .expect(201);
+    expect(installed.body.status).toBe('ACTIVE');
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/marketplace/${marketplaceDraft.body.id as string}/uninstall`,
+      )
+      .set(authT)
+      .expect(201);
+
+    const policy = await request(app.getHttpServer())
+      .patch('/v1/enterprise/security-policy')
+      .set(authT)
+      .send({
+        allowedEmailDomains: ['example.com'],
+        sessionMaxMinutes: 1440,
+        auditRetentionDays: 365,
+      })
+      .expect(200);
+    expect(policy.body.allowedEmailDomains).toEqual(['example.com']);
+    expect(policy.body.sessionMaxMinutes).toBe(1440);
+
+    await request(app.getHttpServer())
+      .patch('/v1/enterprise/security-policy')
+      .set(authT)
+      .send({
+        enforceIpAllowlist: true,
+        ipAllowlist: [],
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/v1/enterprise/identity-connections')
+      .set(authT)
+      .send({
+        name: 'Unsafe Local Issuer',
+        issuerUrl: 'http://127.0.0.1:9000',
+        clientId: 'unsafe-client',
+        clientSecret: 'unsafe-secret-value',
+        domains: ['example.com'],
+      })
+      .expect(400);
+
+    const connection = await request(app.getHttpServer())
+      .post('/v1/enterprise/identity-connections')
+      .set(authT)
+      .send({
+        name: 'Example OIDC',
+        issuerUrl: 'https://id.example.com',
+        clientId: 'phase9-client',
+        clientSecret: 'phase9-client-secret',
+        domains: ['example.com'],
+      })
+      .expect(201);
+    expect(connection.body.status).toBe('DRAFT');
+    expect(connection.body).not.toHaveProperty('clientSecret');
+    expect(connection.body).not.toHaveProperty('clientSecretCiphertext');
+
+    const scim = await request(app.getHttpServer())
+      .post('/v1/enterprise/scim-tokens')
+      .set(authT)
+      .send({ name: 'Phase Nine SCIM' })
+      .expect(201);
+    expect(scim.body.token).toMatch(/^scim_/);
+
+    const scimAuth = {
+      authorization: `Bearer ${scim.body.token as string}`,
+    };
+    await request(app.getHttpServer())
+      .post('/v1/scim/v2/Users')
+      .set(scimAuth)
+      .send({
+        userName: 'blocked@other-domain.test',
+        displayName: 'Blocked User',
+        active: true,
+      })
+      .expect(403);
+
+    const provisioned = await request(app.getHttpServer())
+      .post('/v1/scim/v2/Users')
+      .set(scimAuth)
+      .send({
+        userName: 'scim.user@example.com',
+        displayName: 'SCIM User',
+        active: true,
+      })
+      .expect(201);
+    expect(provisioned.body).toMatchObject({
+      userName: 'scim.user@example.com',
+      active: true,
+    });
+
+    const listedScim = await request(app.getHttpServer())
+      .get(
+        '/v1/scim/v2/Users?filter=' +
+          encodeURIComponent('userName eq "scim.user@example.com"'),
+      )
+      .set(scimAuth)
+      .expect(200);
+    expect(listedScim.body.totalResults).toBe(1);
+
+    await request(app.getHttpServer())
+      .patch(`/v1/scim/v2/Users/${provisioned.body.id as string}`)
+      .set(scimAuth)
+      .send({
+        Operations: [
+          {
+            op: 'replace',
+            path: 'active',
+            value: false,
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/enterprise/scim-tokens/${scim.body.id as string}/revoke`,
+      )
+      .set(authT)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/v1/scim/v2/Users')
+      .set(scimAuth)
+      .expect(401);
+
+    for (const key of [
+      'core.api',
+      'marketplace.enabled',
+      'enterprise.controls',
+    ]) {
+      await request(app.getHttpServer())
+        .put(
+          `/v1/platform-admin/organizations/${tenantT.organization.id}/addons/${key}`,
+        )
+        .set(authAdmin)
+        .send({ enabled: false })
+        .expect(200);
+    }
+
+    await request(app.getHttpServer())
+      .get('/v1/developer/api-keys')
+      .set(authT)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/v1/enterprise/security-policy')
+      .set(authT)
+      .expect(403);
   });
 });

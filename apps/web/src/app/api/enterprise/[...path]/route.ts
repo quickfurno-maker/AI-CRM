@@ -16,9 +16,7 @@ async function forward(request: NextRequest, context: Context) {
   const refreshToken = store.get('crm_ai_refresh')?.value;
   let rotated: AuthTokens | undefined;
 
-  const target = new URL(
-    `${API_BASE_URL}/platform-admin/${path.join('/')}`,
-  );
+  const target = new URL(`${API_BASE_URL}/enterprise/${path.join('/')}`);
   request.nextUrl.searchParams.forEach((value, key) => {
     target.searchParams.append(key, value);
   });

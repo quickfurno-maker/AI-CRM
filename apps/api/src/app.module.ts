@@ -9,6 +9,9 @@ import { AttendanceModule } from './extensions/attendance/attendance.module.js';
 import { RealEstateModule } from './extensions/real-estate/real-estate.module.js';
 import { CommunicationModule } from './modules/communication/communication.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
+import { DeveloperModule } from './modules/developer/developer.module.js';
+import { EnterpriseModule } from './modules/enterprise/enterprise.module.js';
+import { EnterpriseSecurityGuard } from './modules/enterprise/enterprise-security.guard.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
@@ -24,6 +27,7 @@ import { ExtensionsModule } from './platform/extensions/extensions.module.js';
 import { OutboxModule } from './platform/outbox/outbox.module.js';
 import { PermissionsGuard } from './platform/permissions/permissions.guard.js';
 import { PermissionsModule } from './platform/permissions/permissions.module.js';
+import { SecurityModule } from './platform/security/security.module.js';
 
 @Module({
   imports: [
@@ -36,12 +40,15 @@ import { PermissionsModule } from './platform/permissions/permissions.module.js'
     PermissionsModule,
     EntitlementsModule,
     AuditModule,
+    SecurityModule,
     FeatureFlagsModule,
     ExtensionsModule,
     OutboxModule,
     AuthModule,
     HealthModule,
     CrmModule,
+    DeveloperModule,
+    EnterpriseModule,
     CommunicationModule,
     AiModule,
     AnalyticsModule,
@@ -54,6 +61,7 @@ import { PermissionsModule } from './platform/permissions/permissions.module.js'
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: EnterpriseSecurityGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: EntitlementGuard },
   ],

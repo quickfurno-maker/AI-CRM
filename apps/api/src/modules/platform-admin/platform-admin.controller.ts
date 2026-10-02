@@ -5,6 +5,8 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Put,
   UseGuards,
 } from '@nestjs/common';
@@ -20,6 +22,8 @@ import {
   outboxEvents,
 } from '../../platform/database/schema.js';
 import { ExtensionRegistryService } from '../../platform/extensions/extension-registry.service.js';
+import { PublishMarketplaceExtensionDto, SetMarketplaceExtensionStatusDto } from '../developer/developer.dto.js';
+import { DeveloperService } from '../developer/developer.service.js';
 import { PlatformAdminGuard } from './platform-admin.guard.js';
 
 class SetExtensionStateDto {
@@ -33,6 +37,7 @@ export class PlatformAdminController {
   constructor(
     private readonly database: DatabaseService,
     private readonly extensions: ExtensionRegistryService,
+    private readonly developer: DeveloperService,
   ) {}
 
   @Get('organizations')
@@ -150,6 +155,130 @@ export class PlatformAdminController {
         ...entitlement,
       };
     });
+  }
+
+  @Get('organizations/:id/addons')
+  async listOrganizationAddons(
+    @Param('id', ParseUUIDPipe) organizationId: string,
+  ) {
+    await this.assertOrganization(organizationId);
+    const keys = ['core.api', 'marketplace.enabled', 'enterprise.controls'];
+    const rows = await this.database.db
+      .select({
+        key: entitlements.key,
+        enabled: entitlements.enabled,
+        source: entitlements.source,
+        limitValue: entitlements.limitValue,
+        config: entitlements.config,
+      })
+      .from(entitlements)
+      .where(eq(entitlements.organizationId, organizationId));
+    const byKey = new Map(rows.map((row) => [row.key, row]));
+    return keys.map((key) => ({
+      key,
+      enabled: byKey.get(key)?.enabled ?? false,
+      source: byKey.get(key)?.source ?? null,
+      limitValue: byKey.get(key)?.limitValue ?? null,
+      config: byKey.get(key)?.config ?? null,
+    }));
+  }
+
+  @Put('organizations/:id/addons/:key')
+  async setOrganizationAddon(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Param('key') key: string,
+    @Body() dto: SetExtensionStateDto,
+  ) {
+    await this.assertOrganization(organizationId);
+    const allowed = new Set([
+      'core.api',
+      'marketplace.enabled',
+      'enterprise.controls',
+    ]);
+    if (!allowed.has(key)) {
+      throw new NotFoundException('Provider add-on not found.');
+    }
+
+    return this.database.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(entitlements)
+        .values({
+          organizationId,
+          key,
+          enabled: dto.enabled,
+          source: 'ADDON',
+        })
+        .onConflictDoUpdate({
+          target: [entitlements.organizationId, entitlements.key],
+          set: {
+            enabled: dto.enabled,
+            source: 'ADDON',
+            updatedAt: new Date(),
+          },
+        })
+        .returning({
+          key: entitlements.key,
+          enabled: entitlements.enabled,
+          source: entitlements.source,
+          limitValue: entitlements.limitValue,
+          config: entitlements.config,
+        });
+      await tx.insert(auditLogs).values({
+        organizationId,
+        actorType: 'USER',
+        actorId: principal.userId,
+        action: dto.enabled
+          ? 'platform.addon.enable'
+          : 'platform.addon.disable',
+        resourceType: 'entitlement',
+        resourceId: key,
+        after: {
+          key,
+          enabled: dto.enabled,
+          source: 'ADDON',
+        },
+      });
+      await tx.insert(outboxEvents).values({
+        organizationId,
+        eventType: 'platform.addon.updated.v1',
+        aggregateType: 'entitlement',
+        aggregateId: key,
+        payload: {
+          organizationId,
+          key,
+          enabled: dto.enabled,
+          actorUserId: principal.userId,
+        },
+      });
+      return row;
+    });
+  }
+
+  @Get('marketplace/extensions')
+  marketplaceExtensions() {
+    return this.developer.listMarketplaceAdmin();
+  }
+
+  @Post('marketplace/extensions')
+  publishMarketplaceExtension(
+    @CurrentPrincipal() principal: Principal,
+    @Body() dto: PublishMarketplaceExtensionDto,
+  ) {
+    return this.developer.publishMarketplaceExtension(principal, dto);
+  }
+
+  @Patch('marketplace/extensions/:id/status')
+  setMarketplaceExtensionStatus(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetMarketplaceExtensionStatusDto,
+  ) {
+    return this.developer.setMarketplaceExtensionStatus(
+      principal,
+      id,
+      dto,
+    );
   }
 
   private async assertOrganization(organizationId: string) {

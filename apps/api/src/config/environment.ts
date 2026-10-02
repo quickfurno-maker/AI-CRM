@@ -28,8 +28,14 @@ const schema = z
       .string()
       .min(32)
       .default('dev-only-secret-change-before-production-123456'),
+    PLATFORM_SECRET_ENCRYPTION_KEY: z
+      .string()
+      .min(32)
+      .default('dev-only-platform-encryption-key-change-before-production'),
     JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
     CORS_ORIGINS: z.string().default('http://localhost:3000'),
+    PUBLIC_API_ORIGIN: z.string().url().default('http://localhost:4000'),
+    WEB_APP_ORIGIN: z.string().url().default('http://localhost:3000'),
     META_TRANSPORT_MODE: z.enum(['disabled', 'mock', 'live']).default('disabled'),
     META_GRAPH_VERSION: z.string().optional(),
     META_APP_ID: z.string().optional(),
@@ -61,6 +67,30 @@ const schema = z
         code: 'custom',
         path: ['JWT_ACCESS_SECRET'],
         message: 'Production must use a non-development JWT secret.',
+      });
+    }
+    if (env.NODE_ENV === 'production') {
+      for (const [key, value] of [
+        ['PUBLIC_API_ORIGIN', env.PUBLIC_API_ORIGIN],
+        ['WEB_APP_ORIGIN', env.WEB_APP_ORIGIN],
+      ] as const) {
+        if (!value.startsWith('https://')) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `${key} must use HTTPS in production.`,
+          });
+        }
+      }
+    }
+    if (
+      env.NODE_ENV === 'production' &&
+      env.PLATFORM_SECRET_ENCRYPTION_KEY.startsWith('dev-only-platform')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PLATFORM_SECRET_ENCRYPTION_KEY'],
+        message: 'Production must use a non-development encryption key.',
       });
     }
     if (env.NODE_ENV === 'production' && env.META_TRANSPORT_MODE === 'mock') {

@@ -359,6 +359,11 @@ export const apiKeys = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 120 }).notNull(),
+    description: text('description'),
+    createdByMemberId: uuid('created_by_member_id').references(
+      () => organizationMembers.id,
+      { onDelete: 'set null' },
+    ),
     keyPrefix: varchar('key_prefix', { length: 24 }).notNull(),
     keyHash: varchar('key_hash', { length: 128 }).notNull(),
     scopes: jsonb('scopes').$type<string[]>().notNull(),

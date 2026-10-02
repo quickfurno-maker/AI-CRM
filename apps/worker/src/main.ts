@@ -4,6 +4,12 @@ import {
   dispatchCampaignJob,
   type CampaignRecipientJob,
 } from './campaign-dispatch.js';
+import {
+  applyEnterpriseRetention,
+  claimWebhookBatch,
+  dispatchWebhook,
+  resetStaleWebhookClaims,
+} from './webhook-dispatch.js';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -181,12 +187,58 @@ async function publish(event: OutboxRow) {
     event.created_at.toISOString(),
   );
 
-  await pool.query(
-    `update outbox_events
-     set status = 'PROCESSED', processed_at = now(), processing_started_at = null
-     where id = $1`,
-    [event.id],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    if (event.organization_id) {
+      await client.query(
+        `insert into developer_webhook_deliveries (
+           organization_id,
+           endpoint_id,
+           event_id,
+           event_type,
+           event_version,
+           payload
+         )
+         select
+           endpoint.organization_id,
+           endpoint.id,
+           $1::uuid,
+           $2::text,
+           $3,
+           $4::jsonb
+         from developer_webhook_endpoints endpoint
+         where endpoint.organization_id = $5::uuid
+           and endpoint.status = 'ACTIVE'
+           and (
+             endpoint.events ? ($2::text)
+             or endpoint.events ? '*'
+           )
+         on conflict (endpoint_id, event_id) do nothing`,
+        [
+          event.id,
+          event.event_type,
+          event.version,
+          JSON.stringify(event.payload),
+          event.organization_id,
+        ],
+      );
+    }
+    await client.query(
+      `update outbox_events
+       set status = 'PROCESSED',
+           processed_at = now(),
+           processing_started_at = null
+       where id = $1`,
+      [event.id],
+    );
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function fail(event: OutboxRow, error: unknown) {
@@ -209,14 +261,30 @@ function sleep(milliseconds: number) {
 async function runLoop() {
   await resetStaleClaims();
   await resetStaleCampaignClaims();
+  await resetStaleWebhookClaims(pool);
+  let lastRetentionRun = 0;
 
   while (!stopping) {
-    const [outboxBatch, campaignBatch] = await Promise.all([
+    if (Date.now() - lastRetentionRun > 60 * 60 * 1000) {
+      try {
+        await applyEnterpriseRetention(pool);
+      } catch (error) {
+        console.error('[worker] enterprise retention failed', error);
+      }
+      lastRetentionRun = Date.now();
+    }
+
+    const [outboxBatch, campaignBatch, webhookBatch] = await Promise.all([
       claimBatch(),
       claimCampaignBatch(),
+      claimWebhookBatch(pool),
     ]);
 
-    if (!outboxBatch.length && !campaignBatch.length) {
+    if (
+      !outboxBatch.length &&
+      !campaignBatch.length &&
+      !webhookBatch.length
+    ) {
       await sleep(500);
       continue;
     }
@@ -243,6 +311,19 @@ async function runLoop() {
         );
       }
     }
+
+    for (const job of webhookBatch) {
+      if (stopping) break;
+      try {
+        await dispatchWebhook(pool, job);
+      } catch (error) {
+        console.error(
+          '[worker] webhook delivery reconciliation failed',
+          job.delivery_id,
+          error,
+        );
+      }
+    }
   }
 }
 
@@ -261,6 +342,8 @@ async function bootstrap() {
   console.log('[worker] database and Redis connected');
   console.log(`[worker] publishing outbox events to ${eventStream}`);
   console.log('[worker] WhatsApp campaign dispatcher active');
+  console.log('[worker] developer webhook dispatcher active');
+  console.log('[worker] enterprise audit retention active');
   await runLoop();
   await redis.quit();
   await pool.end();

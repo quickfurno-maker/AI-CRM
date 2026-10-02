@@ -396,6 +396,58 @@ export class AuthService {
     );
   }
 
+  async createFederatedSession(
+    account: {
+      userId: string;
+      organizationId: string;
+      membershipId: string;
+      isPlatformAdmin: boolean;
+    },
+    meta: RequestMetadata = {},
+  ) {
+    const refreshToken = this.createRefreshToken();
+    const refreshTokenHash = this.hashRefreshToken(refreshToken);
+    const [session] = await this.database.db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(sessions)
+        .values({
+          userId: account.userId,
+          organizationId: account.organizationId,
+          organizationMemberId: account.membershipId,
+          refreshTokenHash,
+          userAgent: meta.userAgent,
+          ipAddress: meta.ipAddress,
+          expiresAt: new Date(Date.now() + this.refreshLifetimeMs),
+        })
+        .returning({ id: sessions.id });
+
+      await tx.insert(auditLogs).values({
+        organizationId: account.organizationId,
+        actorType: 'USER',
+        actorId: account.userId,
+        action: 'identity.session.sso_login',
+        resourceType: 'session',
+        resourceId: created.id,
+        requestId: meta.requestId,
+      });
+      return [created];
+    });
+
+    const principal: Principal = {
+      userId: account.userId,
+      organizationId: account.organizationId,
+      membershipId: account.membershipId,
+      sessionId: session.id,
+      isPlatformAdmin: account.isPlatformAdmin,
+      authType: 'SESSION',
+    };
+
+    return {
+      sessionId: session.id,
+      tokens: await this.issueTokens(principal, refreshToken),
+    };
+  }
+
   async logout(principal: Principal) {
     await this.database.db
       .update(sessions)

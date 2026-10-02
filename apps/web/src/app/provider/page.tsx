@@ -19,6 +19,12 @@ type Organization = {
   createdAt: string;
 };
 
+type Addon = {
+  key: string;
+  enabled: boolean;
+  source?: string | null;
+};
+
 type Extension = {
   key: string;
   name: string;
@@ -60,6 +66,7 @@ export default function ProviderPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [extensions, setExtensions] = useState<Extension[]>([]);
+  const [addons, setAddons] = useState<Addon[]>([]);
   const [busyKey, setBusyKey] = useState<string>();
   const [error, setError] = useState('');
 
@@ -68,11 +75,13 @@ export default function ProviderPage() {
     [organizations, selectedId],
   );
 
-  const loadExtensions = useCallback(async (organizationId: string) => {
-    const rows = await api<Extension[]>(
-      'organizations/' + organizationId + '/extensions',
-    );
-    setExtensions(rows);
+  const loadControls = useCallback(async (organizationId: string) => {
+    const [extensionRows, addonRows] = await Promise.all([
+      api<Extension[]>('organizations/' + organizationId + '/extensions'),
+      api<Addon[]>('organizations/' + organizationId + '/addons'),
+    ]);
+    setExtensions(extensionRows);
+    setAddons(addonRows);
   }, []);
 
   const load = useCallback(async () => {
@@ -95,7 +104,7 @@ export default function ProviderPage() {
       setOrganizations(rows);
       const nextId = rows[0]?.id;
       setSelectedId(nextId);
-      if (nextId) await loadExtensions(nextId);
+      if (nextId) await loadControls(nextId);
     } catch (reason) {
       if (reason instanceof Error && reason.message === 'AUTH') {
         router.replace('/login');
@@ -105,7 +114,7 @@ export default function ProviderPage() {
         reason instanceof Error ? reason.message : 'Unable to load provider console.',
       );
     }
-  }, [loadExtensions, router]);
+  }, [loadControls, router]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -116,9 +125,31 @@ export default function ProviderPage() {
     setSelectedId(id);
     setError('');
     try {
-      await loadExtensions(id);
+      await loadControls(id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to load extensions.');
+    }
+  }
+
+  async function toggleAddon(addon: Addon) {
+    if (!selectedId) return;
+    setBusyKey(addon.key);
+    setError('');
+    try {
+      await api(
+        'organizations/' + selectedId + '/addons/' + addon.key,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ enabled: !addon.enabled }),
+        },
+      );
+      await loadControls(selectedId);
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Unable to update add-on.',
+      );
+    } finally {
+      setBusyKey(undefined);
     }
   }
 
@@ -134,7 +165,7 @@ export default function ProviderPage() {
           body: JSON.stringify({ enabled: !extension.enabled }),
         },
       );
-      await loadExtensions(selectedId);
+      await loadControls(selectedId);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : 'Unable to update extension.',
@@ -194,6 +225,12 @@ export default function ProviderPage() {
           >
             ← Command Center
           </Link>
+          <Link
+            href="/provider/marketplace"
+            className="mt-2 block rounded-xl border border-white/10 px-3 py-2.5 text-sm text-zinc-400 hover:bg-white/5"
+          >
+            Marketplace publishing
+          </Link>
 
           <div className="mt-4 max-h-[calc(100vh-180px)] space-y-2 overflow-y-auto">
             {organizations.map((organization) => (
@@ -236,7 +273,47 @@ export default function ProviderPage() {
             </div>
           ) : null}
 
-          <div className="mt-7 grid gap-5 xl:grid-cols-2">
+          <section className="mt-7">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
+              Platform add-ons
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {addons.map((addon) => (
+                <article
+                  key={addon.key}
+                  className="rounded-2xl border border-white/10 bg-[#0d1017] p-5"
+                >
+                  <div className="font-mono text-xs text-violet-300">
+                    {addon.key}
+                  </div>
+                  <div className="mt-2 text-sm text-zinc-500">
+                    {addon.key === 'core.api'
+                      ? 'API keys, OAuth clients and signed outbound webhooks.'
+                      : addon.key === 'marketplace.enabled'
+                        ? 'Tenant installation of governed marketplace integrations.'
+                        : 'Enterprise SSO, SCIM and advanced security policies.'}
+                  </div>
+                  <button
+                    disabled={busyKey === addon.key}
+                    onClick={() => void toggleAddon(addon)}
+                    className={
+                      'mt-4 h-9 w-full rounded-xl text-xs font-semibold disabled:opacity-50 ' +
+                      (addon.enabled
+                        ? 'border border-red-400/20 text-red-300'
+                        : 'bg-white text-zinc-950')
+                    }
+                  >
+                    {addon.enabled ? 'Disable add-on' : 'Enable add-on'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <div className="mt-7 text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
+            Industry extensions
+          </div>
+          <div className="mt-3 grid gap-5 xl:grid-cols-2">
             {extensions.map((extension) => (
               <article
                 key={extension.key}

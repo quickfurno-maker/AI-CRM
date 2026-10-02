@@ -78,6 +78,11 @@ export const CORE_PERMISSIONS = [
   { key: 'realestate.booking.read', description: 'Read offers, bookings, brokers and commissions.' },
   { key: 'realestate.booking.manage', description: 'Manage offers, bookings, brokers and commissions.' },
 
+  { key: 'developer.read', description: 'Read API keys, OAuth clients, webhook endpoints and marketplace state.' },
+  { key: 'developer.manage', description: 'Manage API credentials, OAuth clients, webhooks and marketplace installations.' },
+  { key: 'enterprise.read', description: 'Read enterprise identity and security configuration.' },
+  { key: 'enterprise.manage', description: 'Manage enterprise identity, SCIM and security policies.' },
+
   { key: 'attendance.employee.read', description: 'Read employees and attendance organization structure.' },
   { key: 'attendance.employee.manage', description: 'Create and update employee attendance profiles.' },
   { key: 'attendance.department.manage', description: 'Manage attendance departments.' },

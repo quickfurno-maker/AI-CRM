@@ -11,6 +11,8 @@ const STARTER_FEATURES = [
   { key: 'automation.enabled', enabled: false, limitValue: null },
   { key: 'extension.realestate', enabled: false, limitValue: null },
   { key: 'extension.attendance', enabled: false, limitValue: null },
+  { key: 'marketplace.enabled', enabled: false, limitValue: null },
+  { key: 'enterprise.controls', enabled: false, limitValue: null },
 ] as const;
 
 @Injectable()

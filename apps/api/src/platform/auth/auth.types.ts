@@ -6,6 +6,8 @@ export type Principal = {
   isPlatformAdmin: boolean;
   actorType?: 'USER' | 'AI_AGENT' | 'AUTOMATION' | 'SYSTEM' | 'API' | 'INTEGRATION';
   actorId?: string;
+  authType?: 'SESSION' | 'API_KEY' | 'OAUTH';
+  authScopes?: string[];
 };
 
 export type AccessTokenPayload = {

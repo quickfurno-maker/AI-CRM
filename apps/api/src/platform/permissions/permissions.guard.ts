@@ -38,6 +38,15 @@ export class PermissionsGuard implements CanActivate {
     if (!principal) throw new ForbiddenException('Missing tenant principal.');
     if (principal.isPlatformAdmin) return true;
 
+    if (principal.authScopes) {
+      if (!principal.authScopes.includes(permission)) {
+        throw new ForbiddenException(
+          `External credential is missing required scope: ${permission}.`,
+        );
+      }
+      return true;
+    }
+
     const scope = await this.permissions.getPermissionScope({
       organizationId: principal.organizationId,
       membershipId: principal.membershipId,
