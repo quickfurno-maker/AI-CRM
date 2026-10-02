@@ -171,6 +171,9 @@ export class AiController {
       'create_task',
       'update_lead_qualification',
       'request_human_handoff',
+      'search_properties',
+      'recommend_properties',
+      'schedule_site_visit',
     ] as const;
     if (!allowed.includes(toolKey as (typeof allowed)[number])) {
       throw new BadRequestException('Unknown AI tool key.');

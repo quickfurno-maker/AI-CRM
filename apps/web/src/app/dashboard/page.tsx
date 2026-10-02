@@ -13,6 +13,7 @@ type Entitlement = {
 
 type SessionData = {
   organization: {
+    isPlatformAdmin?: boolean;
     organization: {
       id: string;
       name: string;
@@ -31,9 +32,11 @@ type SessionData = {
 const nav = [
   { label: 'Command Center', href: '/dashboard', active: true },
   { label: 'CRM', href: '/crm', active: false },
+  { label: 'Real Estate', href: '/real-estate', active: false, entitlement: 'extension.realestate' },
   { label: 'WhatsApp', href: '/whatsapp', active: false },
   { label: 'AI Agents', href: '/ai-agents', active: false },
   { label: 'Automations', href: '/automations', active: false },
+  { label: 'Provider', href: '/provider', active: false, adminOnly: true },
   { label: 'Attendance' },
   { label: 'Billing' },
   { label: 'Analytics' },
@@ -73,6 +76,15 @@ export default function DashboardPage() {
 
   const org = session.organization.organization;
   const enabled = session.capabilities.entitlements.filter((item) => item.enabled);
+  const visibleNav = nav.filter((item) => {
+    if ('adminOnly' in item && item.adminOnly) {
+      return session.organization.isPlatformAdmin === true;
+    }
+    return (
+      !('entitlement' in item) ||
+      enabled.some((entitlement) => entitlement.key === item.entitlement)
+    );
+  });
   const userLimit = session.capabilities.entitlements.find((item) => item.key === 'users.max')?.limitValue;
 
   return (
@@ -85,7 +97,7 @@ export default function DashboardPage() {
             <div className="mt-1 text-xs text-zinc-500">{org.slug}</div>
           </div>
           <nav className="space-y-1">
-            {nav.map((item) =>
+            {visibleNav.map((item) =>
               item.href ? (
                 <Link
                   key={item.label}

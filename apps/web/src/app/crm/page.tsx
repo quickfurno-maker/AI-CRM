@@ -232,6 +232,7 @@ export default function CrmPage() {
               Command Center
             </Link>
             <div className="rounded-xl bg-white/10 px-3 py-2.5 text-white">CRM</div>
+            <Link href="/real-estate" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Real Estate</Link>
             <Link href="/whatsapp" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">WhatsApp</Link>
             <Link href="/ai-agents" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">AI Agents</Link>
             <Link href="/automations" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Automations</Link>

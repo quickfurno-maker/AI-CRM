@@ -10,7 +10,10 @@ export class OrganizationsController {
 
   @Get('current')
   @RequirePermission('organization.read')
-  current(@CurrentPrincipal() principal: Principal) {
-    return this.organizations.getCurrent(principal.organizationId);
+  async current(@CurrentPrincipal() principal: Principal) {
+    return {
+      ...(await this.organizations.getCurrent(principal.organizationId)),
+      isPlatformAdmin: principal.isPlatformAdmin,
+    };
   }
 }

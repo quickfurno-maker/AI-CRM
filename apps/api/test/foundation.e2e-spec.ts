@@ -2234,4 +2234,331 @@ describe('Phase 1 SaaS foundation', () => {
       ),
     ).toHaveLength(2);
   });
+
+  it('gates and certifies the Real Estate extension end to end', async () => {
+    const platformAdmin = await register({
+      email: 'phase6-platform-admin@example.com',
+      organizationName: 'Phase 6 Platform Admin',
+      organizationSlug: 'phase6-platform-admin',
+    });
+    await pool.query(
+      `update users
+       set is_platform_admin = true, updated_at = now()
+       where email = 'phase6-platform-admin@example.com'`,
+    );
+    const authAdmin = {
+      authorization: `Bearer ${platformAdmin.tokens.accessToken}`,
+    };
+
+    const tenantN = await register({
+      email: 'real-estate-n@example.com',
+      organizationName: 'Real Estate Tenant N',
+      organizationSlug: 'real-estate-tenant-n',
+    });
+    const tenantO = await register({
+      email: 'real-estate-o@example.com',
+      organizationName: 'Real Estate Tenant O',
+      organizationSlug: 'real-estate-tenant-o',
+    });
+    const authN = {
+      authorization: `Bearer ${tenantN.tokens.accessToken}`,
+    };
+    const authO = {
+      authorization: `Bearer ${tenantO.tokens.accessToken}`,
+    };
+
+    const disabledRegistry = await request(app.getHttpServer())
+      .get('/v1/extensions')
+      .set(authN)
+      .expect(200);
+    expect(
+      disabledRegistry.body.find(
+        (item: { key: string }) => item.key === 'real-estate',
+      )?.enabled,
+    ).toBe(false);
+
+    await request(app.getHttpServer())
+      .get('/v1/real-estate/dashboard')
+      .set(authN)
+      .expect(403);
+
+    const enabledForN = await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantN.organization.id}/extensions/real-estate`,
+      )
+      .set(authAdmin)
+      .send({ enabled: true })
+      .expect(200);
+    expect(enabledForN.body.enabled).toBe(true);
+
+    const enabledForO = await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantO.organization.id}/extensions/real-estate`,
+      )
+      .set(authAdmin)
+      .send({ enabled: true })
+      .expect(200);
+    expect(enabledForO.body.enabled).toBe(true);
+
+    const enabledRegistry = await request(app.getHttpServer())
+      .get('/v1/extensions')
+      .set(authN)
+      .expect(200);
+    expect(
+      enabledRegistry.body.find(
+        (item: { key: string }) => item.key === 'real-estate',
+      )?.enabled,
+    ).toBe(true);
+
+    const aiTools = await request(app.getHttpServer())
+      .get('/v1/ai/tools')
+      .set(authN)
+      .expect(200);
+    expect(
+      aiTools.body.some(
+        (item: { key: string }) => item.key === 'search_properties',
+      ),
+    ).toBe(true);
+    expect(
+      aiTools.body.some(
+        (item: { key: string }) => item.key === 'recommend_properties',
+      ),
+    ).toBe(true);
+    expect(
+      aiTools.body.some(
+        (item: { key: string }) => item.key === 'schedule_site_visit',
+      ),
+    ).toBe(true);
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authN)
+      .send({
+        displayName: 'Phase Six Buyer',
+        phone: '919833333333',
+        source: 'REAL_ESTATE',
+      })
+      .expect(201);
+
+    const project = await request(app.getHttpServer())
+      .post('/v1/real-estate/projects')
+      .set(authN)
+      .send({
+        name: 'Phase Six Residences',
+        city: 'Pune',
+        locality: 'Baner',
+        reraNumber: 'P52100000001',
+        amenities: ['Parking', 'Gym', 'Clubhouse'],
+        minPrice: '7000000',
+        maxPrice: '15000000',
+      })
+      .expect(201);
+
+    const matchingUnit = await request(app.getHttpServer())
+      .post('/v1/real-estate/units')
+      .set(authN)
+      .send({
+        projectId: project.body.id,
+        title: 'Phase Six Residences · A-1203',
+        unitNumber: 'A-1203',
+        propertyType: 'APARTMENT',
+        configuration: '2 BHK',
+        carpetArea: '820',
+        price: '8200000',
+        amenities: ['Parking', 'Gym'],
+      })
+      .expect(201);
+
+    const independentUnit = await request(app.getHttpServer())
+      .post('/v1/real-estate/units')
+      .set(authN)
+      .send({
+        title: 'Kharadi Premium 3 BHK',
+        city: 'Pune',
+        locality: 'Kharadi',
+        propertyType: 'APARTMENT',
+        configuration: '3 BHK',
+        carpetArea: '1250',
+        price: '14000000',
+        amenities: ['Parking', 'Gym'],
+      })
+      .expect(201);
+
+    const requirement = await request(app.getHttpServer())
+      .post('/v1/real-estate/requirements')
+      .set(authN)
+      .send({
+        contactId: contact.body.id,
+        purpose: 'SELF_USE',
+        cities: ['Pune'],
+        localities: ['Baner'],
+        propertyTypes: ['APARTMENT'],
+        configurations: ['2 BHK'],
+        minBudget: '7000000',
+        maxBudget: '9000000',
+        minCarpetArea: '750',
+        mustHaveAmenities: ['Parking'],
+        purchaseTimeline: '0-3 months',
+      })
+      .expect(201);
+
+    const matched = await request(app.getHttpServer())
+      .post(
+        `/v1/real-estate/requirements/${requirement.body.id as string}/match`,
+      )
+      .set(authN)
+      .send({ limit: 10 })
+      .expect(201);
+
+    expect(matched.body).toHaveLength(1);
+    expect(matched.body[0].unit.id).toBe(matchingUnit.body.id);
+    expect(matched.body[0].score).toBe(100);
+    expect(matched.body[0].reasons).toContain('Preferred locality');
+
+    const persistedMatches = await request(app.getHttpServer())
+      .get(
+        `/v1/real-estate/requirements/${requirement.body.id as string}/matches`,
+      )
+      .set(authN)
+      .expect(200);
+    expect(persistedMatches.body).toHaveLength(1);
+    expect(persistedMatches.body[0].unit.id).toBe(matchingUnit.body.id);
+
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const visit = await request(app.getHttpServer())
+      .post('/v1/real-estate/site-visits')
+      .set(authN)
+      .send({
+        requirementId: requirement.body.id,
+        contactId: contact.body.id,
+        projectId: project.body.id,
+        unitId: matchingUnit.body.id,
+        scheduledAt: scheduledAt.toISOString(),
+        notes: 'Buyer requested afternoon visit.',
+      })
+      .expect(201);
+
+    expect(visit.body.status).toBe('SCHEDULED');
+    expect(visit.body.appointment.id).toBeTruthy();
+
+    const completedVisit = await request(app.getHttpServer())
+      .patch(
+        `/v1/real-estate/site-visits/${visit.body.id as string}`,
+      )
+      .set(authN)
+      .send({
+        status: 'COMPLETED',
+        outcome: 'INTERESTED',
+      })
+      .expect(200);
+    expect(completedVisit.body.status).toBe('COMPLETED');
+
+    const independentVisit = await request(app.getHttpServer())
+      .post('/v1/real-estate/site-visits')
+      .set(authN)
+      .send({
+        contactId: contact.body.id,
+        unitId: independentUnit.body.id,
+        scheduledAt: new Date(
+          scheduledAt.getTime() + 2 * 60 * 60 * 1000,
+        ).toISOString(),
+        notes: 'Standalone resale property visit.',
+      })
+      .expect(201);
+    expect(independentVisit.body.projectId).toBeNull();
+    expect(independentVisit.body.unitId).toBe(independentUnit.body.id);
+    expect(independentVisit.body.appointment.location).toContain('Kharadi');
+
+    const booking = await request(app.getHttpServer())
+      .post('/v1/real-estate/bookings')
+      .set(authN)
+      .send({
+        contactId: contact.body.id,
+        requirementId: requirement.body.id,
+        unitId: matchingUnit.body.id,
+        bookingAmount: '100000',
+      })
+      .expect(201);
+    expect(booking.body.status).toBe('RESERVED');
+
+    const reservedInventory = await request(app.getHttpServer())
+      .get('/v1/real-estate/units?limit=100')
+      .set(authN)
+      .expect(200);
+    expect(
+      reservedInventory.body.find(
+        (item: { unit: { id: string } }) =>
+          item.unit.id === matchingUnit.body.id,
+      )?.unit.inventoryStatus,
+    ).toBe('HOLD');
+
+    const confirmed = await request(app.getHttpServer())
+      .patch(
+        `/v1/real-estate/bookings/${booking.body.id as string}`,
+      )
+      .set(authN)
+      .send({ status: 'CONFIRMED' })
+      .expect(200);
+    expect(confirmed.body.status).toBe('CONFIRMED');
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/real-estate/bookings/${booking.body.id as string}`,
+      )
+      .set(authN)
+      .send({ status: 'RESERVED' })
+      .expect(409);
+
+    const bookedInventory = await request(app.getHttpServer())
+      .get('/v1/real-estate/units?limit=100')
+      .set(authN)
+      .expect(200);
+    expect(
+      bookedInventory.body.find(
+        (item: { unit: { id: string } }) =>
+          item.unit.id === matchingUnit.body.id,
+      )?.unit.inventoryStatus,
+    ).toBe('BOOKED');
+
+    await request(app.getHttpServer())
+      .post('/v1/real-estate/bookings')
+      .set(authN)
+      .send({
+        contactId: contact.body.id,
+        unitId: matchingUnit.body.id,
+        bookingAmount: '100000',
+      })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .patch(`/v1/real-estate/units/${matchingUnit.body.id as string}`)
+      .set(authO)
+      .send({ price: '1' })
+      .expect(404);
+
+    const dashboard = await request(app.getHttpServer())
+      .get('/v1/real-estate/dashboard')
+      .set(authN)
+      .expect(200);
+    expect(dashboard.body).toMatchObject({
+      projects: 1,
+      availableUnits: 1,
+      activeRequirements: 0,
+      bookings: 1,
+    });
+
+    const disabledForN = await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantN.organization.id}/extensions/real-estate`,
+      )
+      .set(authAdmin)
+      .send({ enabled: false })
+      .expect(200);
+    expect(disabledForN.body.enabled).toBe(false);
+
+    await request(app.getHttpServer())
+      .get('/v1/real-estate/dashboard')
+      .set(authN)
+      .expect(403);
+  });
 });

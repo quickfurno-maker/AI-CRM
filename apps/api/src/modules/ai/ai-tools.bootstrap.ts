@@ -102,6 +102,67 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    key: 'search_properties',
+    name: 'Search Real Estate Properties',
+    description:
+      'Search available tenant property inventory using explicit buyer criteria. Returns only real inventory records.',
+    riskLevel: 'L0',
+    handlerKey: 'realestate.search_properties',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', maxLength: 120 },
+        locality: { type: 'string', maxLength: 160 },
+        propertyType: { type: 'string', maxLength: 48 },
+        configuration: { type: 'string', maxLength: 80 },
+        maxPrice: { type: 'number', minimum: 0 },
+        minCarpetArea: { type: 'number', minimum: 0 },
+        limit: { type: 'integer', minimum: 1, maximum: 20 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'recommend_properties',
+    name: 'Recommend Real Estate Properties',
+    description:
+      'Run the deterministic tenant property matcher for an existing buyer requirement and return explainable matches.',
+    riskLevel: 'L1',
+    handlerKey: 'realestate.recommend_properties',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirementId: { type: 'string', format: 'uuid' },
+        limit: { type: 'integer', minimum: 1, maximum: 20 },
+      },
+      required: ['requirementId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    key: 'schedule_site_visit',
+    name: 'Schedule Real Estate Site Visit',
+    description:
+      'Schedule a site visit linked to tenant CRM and property inventory. Use only after date/time and property context are known.',
+    riskLevel: 'L2',
+    handlerKey: 'realestate.schedule_site_visit',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contactId: { type: 'string', format: 'uuid' },
+        requirementId: { type: 'string', format: 'uuid' },
+        leadId: { type: 'string', format: 'uuid' },
+        dealId: { type: 'string', format: 'uuid' },
+        projectId: { type: 'string', format: 'uuid' },
+        unitId: { type: 'string', format: 'uuid' },
+        scheduledAt: { type: 'string' },
+        notes: { type: 'string', maxLength: 4000 },
+      },
+      required: ['scheduledAt'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 @Injectable()

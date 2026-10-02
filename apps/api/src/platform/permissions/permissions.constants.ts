@@ -68,4 +68,13 @@ export const CORE_PERMISSIONS = [
   { key: 'automation.run.manage', description: 'Inspect and manage automation runtime state.' },
   { key: 'automation.approval.read', description: 'Read automation approval requests.' },
   { key: 'automation.approval.decide', description: 'Approve or reject paused automation actions.' },
+
+  { key: 'realestate.inventory.read', description: 'Read real-estate developers, projects, buildings and units.' },
+  { key: 'realestate.inventory.manage', description: 'Create and update real-estate inventory.' },
+  { key: 'realestate.requirement.read', description: 'Read buyer requirements and property matches.' },
+  { key: 'realestate.requirement.manage', description: 'Create, update and match buyer requirements.' },
+  { key: 'realestate.visit.read', description: 'Read site visits.' },
+  { key: 'realestate.visit.manage', description: 'Schedule and update site visits.' },
+  { key: 'realestate.booking.read', description: 'Read offers, bookings, brokers and commissions.' },
+  { key: 'realestate.booking.manage', description: 'Manage offers, bookings, brokers and commissions.' },
 ] as const;

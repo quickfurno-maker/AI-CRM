@@ -8,6 +8,7 @@ import { tool } from '@openai/agents';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Principal } from '../../platform/auth/auth.types.js';
+import { RealEstateService } from '../../extensions/real-estate/real-estate.service.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
   auditLogs,
@@ -67,6 +68,29 @@ const toolSchemas = {
     conversationId: z.string().uuid(),
     reason: z.string().min(1).max(2000),
   }),
+  search_properties: z.object({
+    city: z.string().max(120).optional(),
+    locality: z.string().max(160).optional(),
+    propertyType: z.string().max(48).optional(),
+    configuration: z.string().max(80).optional(),
+    maxPrice: z.number().min(0).optional(),
+    minCarpetArea: z.number().min(0).optional(),
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
+  recommend_properties: z.object({
+    requirementId: z.string().uuid(),
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
+  schedule_site_visit: z.object({
+    contactId: z.string().uuid().optional(),
+    requirementId: z.string().uuid().optional(),
+    leadId: z.string().uuid().optional(),
+    dealId: z.string().uuid().optional(),
+    projectId: z.string().uuid().optional(),
+    unitId: z.string().uuid().optional(),
+    scheduledAt: z.string().min(1),
+    notes: z.string().max(4000).optional(),
+  }),
 };
 
 export type ToolKey = keyof typeof toolSchemas;
@@ -76,6 +100,7 @@ export class AiToolGatewayService {
   constructor(
     private readonly database: DatabaseService,
     private readonly knowledge: AiKnowledgeService,
+    private readonly realEstate: RealEstateService,
   ) {}
 
   async buildAgentTools(context: AiExecutionContext) {
@@ -564,6 +589,60 @@ export class AiToolGatewayService {
           reason: parsedArgs.reason,
         };
       });
+    }
+
+    if (toolKey === 'search_properties') {
+      const parsedArgs = toolSchemas.search_properties.parse(args);
+      return this.realEstate.searchProperties(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        parsedArgs,
+      );
+    }
+
+    if (toolKey === 'recommend_properties') {
+      const parsedArgs = toolSchemas.recommend_properties.parse(args);
+      return this.realEstate.matchRequirement(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        parsedArgs.requirementId,
+        { limit: parsedArgs.limit ?? 10 },
+      );
+    }
+
+    if (toolKey === 'schedule_site_visit') {
+      const parsedArgs = toolSchemas.schedule_site_visit.parse(args);
+      const contactId = parsedArgs.contactId ?? context.contactId ?? undefined;
+      if (!contactId) {
+        throw new ForbiddenException(
+          'Site visit scheduling requires a tenant CRM contact context.',
+        );
+      }
+      return this.realEstate.scheduleSiteVisit(
+        {
+          ...context.principal,
+          actorType: 'AI_AGENT',
+          actorId: context.agentId,
+        },
+        {
+          workspaceId: context.workspaceId,
+          contactId,
+          requirementId: parsedArgs.requirementId,
+          leadId: parsedArgs.leadId,
+          dealId: parsedArgs.dealId,
+          projectId: parsedArgs.projectId,
+          unitId: parsedArgs.unitId,
+          ownerMemberId: context.principal.membershipId,
+          scheduledAt: parsedArgs.scheduledAt,
+          notes: parsedArgs.notes,
+        },
+      );
     }
 
     throw new NotFoundException('AI tool handler not found.');
