@@ -37,7 +37,7 @@ const nav = [
   { label: 'AI Agents', href: '/ai-agents', active: false },
   { label: 'Automations', href: '/automations', active: false },
   { label: 'Provider', href: '/provider', active: false, adminOnly: true },
-  { label: 'Attendance' },
+  { label: 'Attendance', href: '/attendance', active: false, entitlement: 'extension.attendance' },
   { label: 'Billing' },
   { label: 'Analytics' },
 ];

@@ -2561,4 +2561,504 @@ describe('Phase 1 SaaS foundation', () => {
       .set(authN)
       .expect(403);
   });
+
+  it('gates and certifies Attendance & Employee Operations end to end', async () => {
+    const platformAdmin = await register({
+      email: 'phase7-platform-admin@example.com',
+      organizationName: 'Phase 7 Platform Admin',
+      organizationSlug: 'phase7-platform-admin',
+    });
+    await pool.query(
+      `update users
+       set is_platform_admin = true, updated_at = now()
+       where email = 'phase7-platform-admin@example.com'`,
+    );
+    const authAdmin = {
+      authorization: `Bearer ${platformAdmin.tokens.accessToken}`,
+    };
+
+    const tenantP = await register({
+      email: 'attendance-p@example.com',
+      organizationName: 'Attendance Tenant P',
+      organizationSlug: 'attendance-tenant-p',
+    });
+    const tenantQ = await register({
+      email: 'attendance-q@example.com',
+      organizationName: 'Attendance Tenant Q',
+      organizationSlug: 'attendance-tenant-q',
+    });
+    const authP = {
+      authorization: `Bearer ${tenantP.tokens.accessToken}`,
+    };
+    const authQ = {
+      authorization: `Bearer ${tenantQ.tokens.accessToken}`,
+    };
+
+    const disabledRegistry = await request(app.getHttpServer())
+      .get('/v1/extensions')
+      .set(authP)
+      .expect(200);
+    expect(
+      disabledRegistry.body.find(
+        (item: { key: string }) => item.key === 'attendance',
+      )?.enabled,
+    ).toBe(false);
+
+    await request(app.getHttpServer())
+      .get('/v1/attendance/dashboard')
+      .set(authP)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantP.organization.id}/extensions/attendance`,
+      )
+      .set(authAdmin)
+      .send({ enabled: true })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantQ.organization.id}/extensions/attendance`,
+      )
+      .set(authAdmin)
+      .send({ enabled: true })
+      .expect(200);
+
+    const enabledRegistry = await request(app.getHttpServer())
+      .get('/v1/extensions')
+      .set(authP)
+      .expect(200);
+    expect(
+      enabledRegistry.body.find(
+        (item: { key: string }) => item.key === 'attendance',
+      )?.enabled,
+    ).toBe(true);
+
+    const membershipRows = (await pool.query(
+      `select om.id
+       from organization_members om
+       join users u on u.id = om.user_id
+       where om.organization_id = '${tenantP.organization.id}'
+         and u.email = 'attendance-p@example.com'
+       limit 1`,
+    )) as { rows: Array<{ id: string }> };
+    const ownerMembershipId = membershipRows.rows[0]?.id;
+    expect(ownerMembershipId).toBeTruthy();
+
+    const department = await request(app.getHttpServer())
+      .post('/v1/attendance/departments')
+      .set(authP)
+      .send({
+        name: 'Sales',
+        code: 'SALES',
+      })
+      .expect(201);
+
+    const employee = await request(app.getHttpServer())
+      .post('/v1/attendance/employees')
+      .set(authP)
+      .send({
+        employeeCode: 'EMP-001',
+        displayName: 'Phase Seven Owner',
+        email: 'attendance-p@example.com',
+        departmentId: department.body.id,
+        organizationMemberId: ownerMembershipId,
+        designation: 'Sales Manager',
+      })
+      .expect(201);
+    expect(employee.body.organizationMemberId).toBe(ownerMembershipId);
+
+    const secondEmployee = await request(app.getHttpServer())
+      .post('/v1/attendance/employees')
+      .set(authP)
+      .send({
+        employeeCode: 'EMP-002',
+        displayName: 'Phase Seven Teammate',
+        departmentId: department.body.id,
+        designation: 'Sales Executive',
+      })
+      .expect(201);
+
+    const nightEmployee = await request(app.getHttpServer())
+      .post('/v1/attendance/employees')
+      .set(authP)
+      .send({
+        employeeCode: 'EMP-003',
+        displayName: 'Phase Seven Night Shift',
+        departmentId: department.body.id,
+        designation: 'Night Operations',
+      })
+      .expect(201);
+
+    const shift = await request(app.getHttpServer())
+      .post('/v1/attendance/shifts')
+      .set(authP)
+      .send({
+        name: 'General Shift',
+        code: 'GEN',
+        timezone: 'Asia/Kolkata',
+        startTime: '09:00',
+        endTime: '18:00',
+        breakMinutes: 60,
+        graceMinutes: 10,
+        weeklyOffDays: [0],
+      })
+      .expect(201);
+    expect(shift.body.expectedMinutes).toBe(480);
+
+    const todayParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const part = (type: string) =>
+      todayParts.find((item) => item.type === type)?.value ?? '';
+    const today = `${part('year')}-${part('month')}-${part('day')}`;
+    const yesterdayDate = new Date(`${today}T00:00:00.000Z`);
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    const dayBeforeYesterdayDate = new Date(
+      `${today}T00:00:00.000Z`,
+    );
+    dayBeforeYesterdayDate.setUTCDate(
+      dayBeforeYesterdayDate.getUTCDate() - 2,
+    );
+    const dayBeforeYesterday = dayBeforeYesterdayDate
+      .toISOString()
+      .slice(0, 10);
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`);
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+    const dayAfterDate = new Date(`${today}T00:00:00.000Z`);
+    dayAfterDate.setUTCDate(dayAfterDate.getUTCDate() + 2);
+    const dayAfter = dayAfterDate.toISOString().slice(0, 10);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/shift-assignments')
+      .set(authP)
+      .send({
+        employeeId: employee.body.id,
+        shiftId: shift.body.id,
+        effectiveFrom: today,
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/shift-assignments')
+      .set(authP)
+      .send({
+        employeeId: employee.body.id,
+        shiftId: shift.body.id,
+        effectiveFrom: today,
+      })
+      .expect(409);
+
+    const nightShift = await request(app.getHttpServer())
+      .post('/v1/attendance/shifts')
+      .set(authP)
+      .send({
+        name: 'Night Shift',
+        code: 'NIGHT',
+        timezone: 'Asia/Kolkata',
+        startTime: '22:00',
+        endTime: '06:00',
+        breakMinutes: 30,
+        graceMinutes: 10,
+        weeklyOffDays: [],
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/shift-assignments')
+      .set(authP)
+      .send({
+        employeeId: nightEmployee.body.id,
+        shiftId: nightShift.body.id,
+        effectiveFrom: dayBeforeYesterday,
+      })
+      .expect(201);
+
+    const overnightCheckIn = await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${nightEmployee.body.id as string}/check-in`,
+      )
+      .set(authP)
+      .send({
+        occurredAt: `${yesterday}T01:00:00+05:30`,
+      })
+      .expect(201);
+    expect(overnightCheckIn.body.record.attendanceDate).toBe(
+      dayBeforeYesterday,
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${nightEmployee.body.id as string}/check-out`,
+      )
+      .set(authP)
+      .send({
+        occurredAt: `${yesterday}T02:00:00+05:30`,
+      })
+      .expect(201);
+
+    const policy = await request(app.getHttpServer())
+      .post('/v1/attendance/policies')
+      .set(authP)
+      .send({
+        name: 'Office Geofence',
+        isDefault: true,
+        locationValidationMode: 'REQUIRED',
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        radiusMeters: 300,
+        maxAccuracyMeters: 100,
+        allowRemote: false,
+        lateGraceMinutes: 10,
+        earlyExitGraceMinutes: 10,
+        maxShiftHours: 16,
+      })
+      .expect(201);
+    expect(policy.body.locationValidationMode).toBe('REQUIRED');
+    expect(policy.body.maxAccuracyMeters).toBe(100);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-in')
+      .set(authP)
+      .send({})
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-in')
+      .set(authP)
+      .send({
+        latitude: '18.0000000',
+        longitude: '73.0000000',
+        accuracyMeters: 20,
+      })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-in')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 500,
+      })
+      .expect(400);
+
+    const checkedIn = await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-in')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 20,
+        idempotencyKey: 'phase7-checkin-001',
+        source: 'MOBILE',
+      })
+      .expect(201);
+    expect(checkedIn.body.event.locationValidation).toBe('VALID');
+    expect(checkedIn.body.record.firstCheckInAt).toBeTruthy();
+
+    const duplicateCheckIn = await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-in')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 20,
+        idempotencyKey: 'phase7-checkin-001',
+        source: 'MOBILE',
+      })
+      .expect(201);
+    expect(duplicateCheckIn.body.idempotent).toBe(true);
+    expect(duplicateCheckIn.body.event.id).toBe(checkedIn.body.event.id);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-out')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 20,
+        idempotencyKey: 'phase7-checkin-001',
+        source: 'MOBILE',
+      })
+      .expect(409);
+
+    const checkedOut = await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-out')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 20,
+        idempotencyKey: 'phase7-checkout-001',
+        source: 'MOBILE',
+      })
+      .expect(201);
+    expect(checkedOut.body.event.locationValidation).toBe('VALID');
+    expect(checkedOut.body.record.lastCheckOutAt).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/me/check-out')
+      .set(authP)
+      .send({
+        latitude: '18.5204000',
+        longitude: '73.8567000',
+        accuracyMeters: 20,
+      })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${secondEmployee.body.id as string}/check-in`,
+      )
+      .set(authP)
+      .send({
+        occurredAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+      .expect(400);
+
+    const managerCheckIn = await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${secondEmployee.body.id as string}/check-in`,
+      )
+      .set(authP)
+      .send({
+        occurredAt: `${today}T10:00:00+05:30`,
+      })
+      .expect(201);
+    expect(managerCheckIn.body.event.locationValidation).toBe(
+      'ADMIN_OVERRIDE',
+    );
+
+    const managerCheckOut = await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${secondEmployee.body.id as string}/check-out`,
+      )
+      .set(authP)
+      .send({
+        occurredAt: `${today}T11:00:00+05:30`,
+      })
+      .expect(201);
+    expect(managerCheckOut.body.event.locationValidation).toBe(
+      'ADMIN_OVERRIDE',
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/attendance/employees/${secondEmployee.body.id as string}/leaves`,
+      )
+      .set(authP)
+      .send({
+        leaveType: 'CASUAL',
+        startDate: tomorrow,
+        endDate: tomorrow,
+        requestedDays: '2',
+      })
+      .expect(400);
+
+    const leave = await request(app.getHttpServer())
+      .post('/v1/attendance/me/leaves')
+      .set(authP)
+      .send({
+        leaveType: 'CASUAL',
+        startDate: tomorrow,
+        endDate: tomorrow,
+        reason: 'Personal work',
+      })
+      .expect(201);
+    expect(leave.body.status).toBe('PENDING');
+
+    const approvedLeave = await request(app.getHttpServer())
+      .patch(
+        `/v1/attendance/leaves/${leave.body.id as string}/decision`,
+      )
+      .set(authP)
+      .send({ status: 'APPROVED' })
+      .expect(200);
+    expect(approvedLeave.body.status).toBe('APPROVED');
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/attendance/leaves/${leave.body.id as string}/decision`,
+      )
+      .set(authP)
+      .send({ status: 'REJECTED' })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post('/v1/attendance/holidays')
+      .set(authP)
+      .send({
+        holidayDate: dayAfter,
+        name: 'Phase Seven Holiday',
+        holidayType: 'COMPANY',
+        isPaid: true,
+      })
+      .expect(201);
+
+    const reconciliation = await request(app.getHttpServer())
+      .post('/v1/attendance/reconcile')
+      .set(authP)
+      .send({ date: tomorrow })
+      .expect(201);
+    expect(reconciliation.body.createdCount).toBe(3);
+    expect(
+      reconciliation.body.records.find(
+        (row: { employeeId: string }) => row.employeeId === employee.body.id,
+      )?.status,
+    ).toBe('LEAVE');
+    expect(
+      reconciliation.body.records.find(
+        (row: { employeeId: string }) =>
+          row.employeeId === secondEmployee.body.id,
+      )?.status,
+    ).toBe('ABSENT');
+
+    const report = await request(app.getHttpServer())
+      .get(
+        `/v1/attendance/reports/summary?from=${today}&to=${tomorrow}`,
+      )
+      .set(authP)
+      .expect(200);
+    const ownerReport = report.body.rows.find(
+      (row: { employeeId: string }) => row.employeeId === employee.body.id,
+    );
+    expect(ownerReport).toBeTruthy();
+    expect(Number(ownerReport.leaveDays)).toBe(1);
+
+    const dashboard = await request(app.getHttpServer())
+      .get(`/v1/attendance/dashboard?date=${today}`)
+      .set(authP)
+      .expect(200);
+    expect(dashboard.body.employees).toBe(3);
+    expect(dashboard.body.present).toBe(2);
+    expect(dashboard.body.notMarked).toBe(1);
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/attendance/employees/${employee.body.id as string}`,
+      )
+      .set(authQ)
+      .send({ displayName: 'Cross Tenant Attack' })
+      .expect(404);
+
+    const disabledForP = await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenantP.organization.id}/extensions/attendance`,
+      )
+      .set(authAdmin)
+      .send({ enabled: false })
+      .expect(200);
+    expect(disabledForP.body.enabled).toBe(false);
+
+    await request(app.getHttpServer())
+      .get('/v1/attendance/dashboard')
+      .set(authP)
+      .expect(403);
+  });
 });

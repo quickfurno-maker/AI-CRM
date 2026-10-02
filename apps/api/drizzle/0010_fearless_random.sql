@@ -1,0 +1,3 @@
+ALTER TABLE "attendance_policies" ADD COLUMN "max_accuracy_meters" integer DEFAULT 100 NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "attendance_policies_workspace_default_uq" ON "attendance_policies" USING btree ("organization_id","workspace_id") WHERE "attendance_policies"."is_default" = true and "attendance_policies"."branch_id" is null and "attendance_policies"."status" = 'ACTIVE';--> statement-breakpoint
+CREATE UNIQUE INDEX "attendance_policies_branch_default_uq" ON "attendance_policies" USING btree ("organization_id","workspace_id","branch_id") WHERE "attendance_policies"."is_default" = true and "attendance_policies"."branch_id" is not null and "attendance_policies"."status" = 'ACTIVE';

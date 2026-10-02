@@ -8,6 +8,7 @@ export default defineConfig({
     './src/modules/ai/ai.schema.ts',
     './src/modules/automation/automation.schema.ts',
     './src/extensions/real-estate/real-estate.schema.ts',
+    './src/extensions/attendance/attendance.schema.ts',
   ],
   out: './drizzle',
   dialect: 'postgresql',

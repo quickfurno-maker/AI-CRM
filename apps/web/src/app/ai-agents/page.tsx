@@ -139,7 +139,8 @@ export default function AiAgentsPage(){
           <Link href="/whatsapp" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">WhatsApp</Link>
           <div className="rounded-xl bg-white/10 px-3 py-2.5 text-white">AI Agents</div>
           <Link href="/automations" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Automations</Link>
-          {['Attendance','Billing','Analytics'].map(x=><div key={x} className="rounded-xl px-3 py-2.5 text-zinc-600">{x}</div>)}
+          <Link href="/attendance" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Attendance</Link>
+          {['Billing','Analytics'].map(x=><div key={x} className="rounded-xl px-3 py-2.5 text-zinc-600">{x}</div>)}
         </nav>
       </aside>
       <section className="min-w-0 p-4 sm:p-7 lg:p-9">
