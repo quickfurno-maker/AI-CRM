@@ -115,12 +115,12 @@ LEFT JOIN "attendance_departments" department
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 
-UPDATE "attendance_employees" employee
-SET "staff_profile_id" = staff."id"
-FROM "staff_profiles" staff
-WHERE staff."organization_id" = employee."organization_id"
-  AND staff."employee_code" = employee."employee_code"
-  AND employee."staff_profile_id" IS NULL;
+UPDATE "attendance_employees"
+SET "staff_profile_id" = "staff_profiles"."id"
+FROM "staff_profiles"
+WHERE "staff_profiles"."organization_id" = "attendance_employees"."organization_id"
+  AND "staff_profiles"."employee_code" = "attendance_employees"."employee_code"
+  AND "attendance_employees"."staff_profile_id" IS NULL;
 --> statement-breakpoint
 CREATE UNIQUE INDEX "attendance_employees_staff_profile_uq" ON "attendance_employees" USING btree ("staff_profile_id");
 --> statement-breakpoint
