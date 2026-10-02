@@ -78,6 +78,13 @@
       "when": 1790941173037,
       "tag": "0010_fearless_random",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790942723000,
+      "tag": "0011_hard_tomorrow_man",
+      "breakpoints": true
     }
   ]
 }

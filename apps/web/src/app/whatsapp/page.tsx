@@ -534,9 +534,8 @@ export default function WhatsAppPage() {
               Automations
             </Link>
             <Link href="/attendance" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Attendance</Link>
-            {['Billing', 'Analytics'].map((item) => (
-              <div key={item} className="rounded-xl px-3 py-2.5 text-zinc-600">{item}</div>
-            ))}
+            <Link href="/billing" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Billing</Link>
+            <Link href="/analytics" className="block rounded-xl px-3 py-2.5 text-zinc-500 hover:bg-white/5">Analytics</Link>
           </nav>
         </aside>
 

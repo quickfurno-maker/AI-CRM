@@ -92,4 +92,12 @@ export const CORE_PERMISSIONS = [
   { key: 'attendance.leave.approve', description: 'Approve or reject employee leave requests.' },
   { key: 'attendance.policy.manage', description: 'Configure attendance and optional location-validation policies.' },
   { key: 'attendance.report.read', description: 'Read attendance dashboards and reports.' },
+
+  { key: 'business_billing.read', description: 'Read customer quotes, invoices, payments, receipts and credit notes.' },
+  { key: 'business_billing.manage', description: 'Configure business billing and create or issue customer quotes and invoices.' },
+  { key: 'business_billing.payment.manage', description: 'Record customer payments and receipts.' },
+  { key: 'business_billing.credit_note.manage', description: 'Issue customer credit notes.' },
+
+  { key: 'analytics.read', description: 'Read cross-domain business analytics and reports.' },
+  { key: 'analytics.ai.ask', description: 'Use governed AI analytics tools over tenant reporting data.' },
 ] as const;

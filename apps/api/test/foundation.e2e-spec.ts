@@ -3061,4 +3061,314 @@ describe('Phase 1 SaaS foundation', () => {
       .set(authP)
       .expect(403);
   });
+
+  it('certifies Business Billing and Advanced Analytics end to end', async () => {
+    const tenantR = await register({
+      email: 'phase8-billing-r@example.com',
+      organizationName: 'Phase 8 Billing R',
+      organizationSlug: 'phase8-billing-r',
+    });
+    const tenantS = await register({
+      email: 'phase8-billing-s@example.com',
+      organizationName: 'Phase 8 Billing S',
+      organizationSlug: 'phase8-billing-s',
+    });
+    const authR = {
+      authorization: `Bearer ${tenantR.tokens.accessToken}`,
+    };
+    const authS = {
+      authorization: `Bearer ${tenantS.tokens.accessToken}`,
+    };
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authR)
+      .send({
+        displayName: 'Phase Eight Client',
+        email: 'phase8-client@example.com',
+        phone: '919822222222',
+        source: 'PHASE_8',
+      })
+      .expect(201);
+
+    const settings = await request(app.getHttpServer())
+      .put('/v1/business-billing/settings')
+      .set(authR)
+      .send({
+        legalName: 'Phase Eight Services Pvt Ltd',
+        taxId: 'GSTIN-PHASE8',
+        currency: 'INR',
+        quotePrefix: 'Q8',
+        invoicePrefix: 'INV8',
+        creditNotePrefix: 'CN8',
+        receiptPrefix: 'RCT8',
+        defaultPaymentTermsDays: 15,
+      })
+      .expect(200);
+    expect(settings.body.invoicePrefix).toBe('INV8');
+
+    const quote = await request(app.getHttpServer())
+      .post('/v1/business-billing/quotes')
+      .set(authR)
+      .send({
+        contactId: contact.body.id,
+        validUntil: new Date(Date.now() + 7 * 86400000)
+          .toISOString()
+          .slice(0, 10),
+        items: [
+          {
+            description: 'Implementation package',
+            quantity: '2',
+            unitPrice: '1000',
+            discountAmount: '100',
+            taxRatePercent: '10',
+          },
+          {
+            description: 'Training',
+            quantity: '1',
+            unitPrice: '500',
+            taxRatePercent: '0',
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(Number(quote.body.quote.subtotal)).toBe(2500);
+    expect(Number(quote.body.quote.discountAmount)).toBe(100);
+    expect(Number(quote.body.quote.taxAmount)).toBe(190);
+    expect(Number(quote.body.quote.total)).toBe(2590);
+    expect(quote.body.items).toHaveLength(2);
+
+    const issuedQuote = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/quotes/${quote.body.quote.id as string}/issue`,
+      )
+      .set(authR)
+      .expect(201);
+    expect(issuedQuote.body.quoteNumber).toBe('Q8-000001');
+    expect(issuedQuote.body.status).toBe('SENT');
+    expect(issuedQuote.body.customerSnapshot.contact.displayName).toBe(
+      'Phase Eight Client',
+    );
+
+    await request(app.getHttpServer())
+      .patch(
+        `/v1/business-billing/quotes/${quote.body.quote.id as string}`,
+      )
+      .set(authR)
+      .send({ notes: 'Attempt to mutate issued quote.' })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/quotes/${quote.body.quote.id as string}/decision`,
+      )
+      .set(authR)
+      .send({ status: 'ACCEPTED' })
+      .expect(201);
+
+    const invoiceDraft = await request(app.getHttpServer())
+      .post('/v1/business-billing/invoices')
+      .set(authR)
+      .send({ quoteId: quote.body.quote.id })
+      .expect(201);
+    expect(Number(invoiceDraft.body.invoice.total)).toBe(2590);
+
+    const issuedInvoice = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${invoiceDraft.body.invoice.id as string}/issue`,
+      )
+      .set(authR)
+      .expect(201);
+    expect(issuedInvoice.body.invoiceNumber).toBe('INV8-000001');
+    expect(issuedInvoice.body.status).toBe('ISSUED');
+    expect(Number(issuedInvoice.body.balanceDue)).toBe(2590);
+
+    const convertedQuote = await request(app.getHttpServer())
+      .get(
+        `/v1/business-billing/quotes/${quote.body.quote.id as string}`,
+      )
+      .set(authR)
+      .expect(200);
+    expect(convertedQuote.body.quote.status).toBe('CONVERTED');
+
+    const firstPayment = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${issuedInvoice.body.id as string}/payments`,
+      )
+      .set(authR)
+      .send({
+        amount: '1000',
+        method: 'UPI',
+        reference: 'UPI-PHASE8-1',
+      })
+      .expect(201);
+    expect(firstPayment.body.payment.receiptNumber).toBe('RCT8-000001');
+    expect(firstPayment.body.invoice.status).toBe('PARTIALLY_PAID');
+    expect(Number(firstPayment.body.invoice.balanceDue)).toBe(1590);
+
+    const credit = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${issuedInvoice.body.id as string}/credit-notes`,
+      )
+      .set(authR)
+      .send({
+        amount: '590',
+        reason: 'Commercial adjustment',
+      })
+      .expect(201);
+    expect(credit.body.creditNote.creditNoteNumber).toBe('CN8-000001');
+    expect(Number(credit.body.invoice.balanceDue)).toBe(1000);
+
+    const finalPayment = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${issuedInvoice.body.id as string}/payments`,
+      )
+      .set(authR)
+      .send({
+        amount: '1000',
+        method: 'BANK_TRANSFER',
+        reference: 'BANK-PHASE8-2',
+      })
+      .expect(201);
+    expect(finalPayment.body.payment.receiptNumber).toBe('RCT8-000002');
+    expect(finalPayment.body.invoice.status).toBe('PAID');
+    expect(Number(finalPayment.body.invoice.balanceDue)).toBe(0);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${issuedInvoice.body.id as string}/payments`,
+      )
+      .set(authR)
+      .send({ amount: '1', method: 'CASH' })
+      .expect(409);
+
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const overdueDraft = await request(app.getHttpServer())
+      .post('/v1/business-billing/invoices')
+      .set(authR)
+      .send({
+        contactId: contact.body.id,
+        dueDate: yesterday,
+        items: [
+          {
+            description: 'Overdue service',
+            quantity: '1',
+            unitPrice: '1000',
+            taxRatePercent: '0',
+          },
+        ],
+      })
+      .expect(201);
+    const overdueIssued = await request(app.getHttpServer())
+      .post(
+        `/v1/business-billing/invoices/${overdueDraft.body.invoice.id as string}/issue`,
+      )
+      .set(authR)
+      .expect(201);
+    expect(overdueIssued.body.invoiceNumber).toBe('INV8-000002');
+
+    const invoiceList = await request(app.getHttpServer())
+      .get('/v1/business-billing/invoices?limit=100')
+      .set(authR)
+      .expect(200);
+    expect(
+      invoiceList.body.find(
+        (row: { id: string }) => row.id === overdueIssued.body.id,
+      )?.status,
+    ).toBe('OVERDUE');
+
+    const concurrentDrafts = await Promise.all([
+      request(app.getHttpServer())
+        .post('/v1/business-billing/quotes')
+        .set(authR)
+        .send({
+          contactId: contact.body.id,
+          items: [
+            {
+              description: 'Concurrent A',
+              quantity: '1',
+              unitPrice: '100',
+            },
+          ],
+        })
+        .expect(201),
+      request(app.getHttpServer())
+        .post('/v1/business-billing/quotes')
+        .set(authR)
+        .send({
+          contactId: contact.body.id,
+          items: [
+            {
+              description: 'Concurrent B',
+              quantity: '1',
+              unitPrice: '100',
+            },
+          ],
+        })
+        .expect(201),
+    ]);
+
+    const concurrentIssued = await Promise.all(
+      concurrentDrafts.map((draft) =>
+        request(app.getHttpServer())
+          .post(
+            `/v1/business-billing/quotes/${draft.body.quote.id as string}/issue`,
+          )
+          .set(authR)
+          .expect(201),
+      ),
+    );
+    expect(
+      new Set(concurrentIssued.map((row) => row.body.quoteNumber)).size,
+    ).toBe(2);
+    expect(
+      concurrentIssued.map((row) => row.body.quoteNumber).sort((a, b) => a.localeCompare(b)),
+    ).toEqual(['Q8-000002', 'Q8-000003']);
+
+    await request(app.getHttpServer())
+      .get(
+        `/v1/business-billing/invoices/${issuedInvoice.body.id as string}`,
+      )
+      .set(authS)
+      .expect(404);
+
+    const from = new Date(Date.now() - 7 * 86400000).toISOString();
+    const to = new Date(Date.now() + 86400000).toISOString();
+    const analytics = await request(app.getHttpServer())
+      .get(
+        `/v1/analytics/overview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      )
+      .set(authR)
+      .expect(200);
+
+    expect(analytics.body.finance.invoiced).toBe(3590);
+    expect(analytics.body.finance.collected).toBe(2000);
+    expect(analytics.body.finance.outstanding).toBe(1000);
+    expect(analytics.body.finance.overdue).toBe(1000);
+    expect(analytics.body.finance.invoiceCount).toBe(2);
+    expect(analytics.body.receivablesAging.days1To30).toBe(1000);
+    expect(analytics.body.crm.leadsCreated).toBe(0);
+    expect(Array.isArray(analytics.body.timeseries)).toBe(true);
+
+    const tools = await request(app.getHttpServer())
+      .get('/v1/ai/tools')
+      .set(authR)
+      .expect(200);
+    expect(
+      tools.body.some(
+        (tool: { key: string }) => tool.key === 'get_business_analytics',
+      ),
+    ).toBe(true);
+
+    const tooOld = new Date(Date.now() - 400 * 86400000).toISOString();
+    await request(app.getHttpServer())
+      .get(
+        `/v1/analytics/overview?from=${encodeURIComponent(tooOld)}&to=${encodeURIComponent(to)}`,
+      )
+      .set(authR)
+      .expect(400);
+  });
 });

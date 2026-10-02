@@ -7,6 +7,7 @@ export default defineConfig({
     './src/modules/communication/communication.schema.ts',
     './src/modules/ai/ai.schema.ts',
     './src/modules/automation/automation.schema.ts',
+    './src/modules/business-billing/business-billing.schema.ts',
     './src/extensions/real-estate/real-estate.schema.ts',
     './src/extensions/attendance/attendance.schema.ts',
   ],

@@ -141,6 +141,23 @@ const TOOLS = [
     },
   },
   {
+    key: 'get_business_analytics',
+    name: 'Get Business Analytics',
+    description:
+      'Read governed cross-domain tenant analytics including finance, CRM, WhatsApp, AI, attendance and Real Estate metrics for a bounded date range.',
+    riskLevel: 'L0',
+    handlerKey: 'analytics.get_business_analytics',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string' },
+        to: { type: 'string' },
+        workspaceId: { type: 'string', format: 'uuid' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     key: 'schedule_site_visit',
     name: 'Schedule Real Estate Site Visit',
     description:

@@ -38,8 +38,8 @@ const nav = [
   { label: 'Automations', href: '/automations', active: false },
   { label: 'Provider', href: '/provider', active: false, adminOnly: true },
   { label: 'Attendance', href: '/attendance', active: false, entitlement: 'extension.attendance' },
-  { label: 'Billing' },
-  { label: 'Analytics' },
+  { label: 'Billing', href: '/billing', active: false },
+  { label: 'Analytics', href: '/analytics', active: false },
 ];
 
 export default function DashboardPage() {

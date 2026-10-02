@@ -9,6 +9,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { RealEstateService } from '../../extensions/real-estate/real-estate.service.js';
+import { AnalyticsService } from '../analytics/analytics.service.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
   auditLogs,
@@ -81,6 +82,11 @@ const toolSchemas = {
     requirementId: z.string().uuid(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
+  get_business_analytics: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    workspaceId: z.string().uuid().optional(),
+  }),
   schedule_site_visit: z.object({
     contactId: z.string().uuid().optional(),
     requirementId: z.string().uuid().optional(),
@@ -101,6 +107,7 @@ export class AiToolGatewayService {
     private readonly database: DatabaseService,
     private readonly knowledge: AiKnowledgeService,
     private readonly realEstate: RealEstateService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   async buildAgentTools(context: AiExecutionContext) {
@@ -589,6 +596,11 @@ export class AiToolGatewayService {
           reason: parsedArgs.reason,
         };
       });
+    }
+
+    if (toolKey === 'get_business_analytics') {
+      const parsedArgs = toolSchemas.get_business_analytics.parse(args);
+      return this.analytics.overview(context.principal, parsedArgs);
     }
 
     if (toolKey === 'search_properties') {
