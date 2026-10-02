@@ -11,6 +11,7 @@ export default defineConfig({
     './src/extensions/real-estate/real-estate.schema.ts',
     './src/modules/developer/developer.schema.ts',
     './src/modules/enterprise/enterprise.schema.ts',
+    './src/modules/staff/staff.schema.ts',
     './src/extensions/attendance/attendance.schema.ts',
   ],
   out: './drizzle',

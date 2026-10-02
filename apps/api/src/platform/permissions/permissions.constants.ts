@@ -83,6 +83,11 @@ export const CORE_PERMISSIONS = [
   { key: 'enterprise.read', description: 'Read enterprise identity and security configuration.' },
   { key: 'enterprise.manage', description: 'Manage enterprise identity, SCIM and security policies.' },
 
+  { key: 'staff.read', description: 'Read the organization staff directory without implying product-seat access.' },
+  { key: 'staff.manage', description: 'Create and update staff profiles independently from login and billing seats.' },
+  { key: 'seats.read', description: 'Read product-seat assignments and seat usage.' },
+  { key: 'seats.manage', description: 'Assign, change and revoke explicit product-seat access.' },
+
   { key: 'attendance.employee.read', description: 'Read employees and attendance organization structure.' },
   { key: 'attendance.employee.manage', description: 'Create and update employee attendance profiles.' },
   { key: 'attendance.department.manage', description: 'Manage attendance departments.' },

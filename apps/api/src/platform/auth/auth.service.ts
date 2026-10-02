@@ -27,6 +27,7 @@ import {
   users,
   workspaces,
 } from '../database/schema.js';
+import { memberSeatAssignments } from '../../modules/staff/staff.schema.js';
 import type { Principal } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { RefreshDto } from './dto/refresh.dto.js';
@@ -109,6 +110,14 @@ export class AuthService {
           isOwner: true,
         })
         .returning({ id: organizationMembers.id });
+
+      await tx.insert(memberSeatAssignments).values({
+        organizationId: organization.id,
+        organizationMemberId: membership.id,
+        accessClass: 'FULL',
+        status: 'ACTIVE',
+        assignedByMemberId: membership.id,
+      });
 
       await tx.insert(workspaces).values({
         organizationId: organization.id,
@@ -269,6 +278,7 @@ export class AuthService {
         organizationName: organizations.name,
         organizationSlug: organizations.slug,
         membershipId: organizationMembers.id,
+        seatClass: memberSeatAssignments.accessClass,
       })
       .from(users)
       .innerJoin(
@@ -279,12 +289,20 @@ export class AuthService {
         organizations,
         eq(organizations.id, organizationMembers.organizationId),
       )
+      .innerJoin(
+        memberSeatAssignments,
+        eq(
+          memberSeatAssignments.organizationMemberId,
+          organizationMembers.id,
+        ),
+      )
       .where(
         and(
           eq(users.email, email),
           eq(organizations.slug, slug),
           eq(organizations.status, 'ACTIVE'),
           eq(organizationMembers.status, 'ACTIVE'),
+          eq(memberSeatAssignments.status, 'ACTIVE'),
         ),
       )
       .limit(1);
@@ -340,6 +358,7 @@ export class AuthService {
           membershipId: account.membershipId,
           sessionId: session.id,
           isPlatformAdmin: account.isPlatformAdmin,
+          seatClass: account.seatClass as Principal['seatClass'],
         },
         refreshToken,
       ),
@@ -355,6 +374,7 @@ export class AuthService {
         organizationId: sessions.organizationId,
         membershipId: sessions.organizationMemberId,
         isPlatformAdmin: users.isPlatformAdmin,
+        seatClass: memberSeatAssignments.accessClass,
       })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
@@ -362,12 +382,20 @@ export class AuthService {
         organizationMembers,
         eq(organizationMembers.id, sessions.organizationMemberId),
       )
+      .innerJoin(
+        memberSeatAssignments,
+        eq(
+          memberSeatAssignments.organizationMemberId,
+          organizationMembers.id,
+        ),
+      )
       .where(
         and(
           eq(sessions.refreshTokenHash, tokenHash),
           isNull(sessions.revokedAt),
           gt(sessions.expiresAt, new Date()),
           eq(organizationMembers.status, 'ACTIVE'),
+          eq(memberSeatAssignments.status, 'ACTIVE'),
         ),
       )
       .limit(1);
@@ -391,6 +419,7 @@ export class AuthService {
         membershipId: session.membershipId,
         sessionId: session.sessionId,
         isPlatformAdmin: session.isPlatformAdmin,
+        seatClass: session.seatClass as Principal['seatClass'],
       },
       newRefreshToken,
     );
@@ -405,6 +434,22 @@ export class AuthService {
     },
     meta: RequestMetadata = {},
   ) {
+    const seatRows = await this.database.db
+      .select({ accessClass: memberSeatAssignments.accessClass })
+      .from(memberSeatAssignments)
+      .where(
+        and(
+          eq(memberSeatAssignments.organizationId, account.organizationId),
+          eq(memberSeatAssignments.organizationMemberId, account.membershipId),
+          eq(memberSeatAssignments.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    const activeSeat = seatRows[0];
+    if (!activeSeat) {
+      throw new UnauthorizedException('An active product seat is required.');
+    }
+
     const refreshToken = this.createRefreshToken();
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
     const [session] = await this.database.db.transaction(async (tx) => {
@@ -440,6 +485,7 @@ export class AuthService {
       sessionId: session.id,
       isPlatformAdmin: account.isPlatformAdmin,
       authType: 'SESSION',
+      seatClass: activeSeat.accessClass as Principal['seatClass'],
     };
 
     return {

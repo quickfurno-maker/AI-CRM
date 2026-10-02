@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { newDb, DataType } from 'pg-mem';
 import { createHmac, randomUUID } from 'node:crypto';
+import { hash } from 'bcryptjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Pool as PgPool } from 'pg';
@@ -2936,7 +2937,7 @@ describe('Phase 1 SaaS foundation', () => {
       )
       .set(authP)
       .send({
-        occurredAt: `${today}T10:00:00+05:30`,
+        occurredAt: `${today}T00:00:00+05:30`,
       })
       .expect(201);
     expect(managerCheckIn.body.event.locationValidation).toBe(
@@ -2949,7 +2950,7 @@ describe('Phase 1 SaaS foundation', () => {
       )
       .set(authP)
       .send({
-        occurredAt: `${today}T11:00:00+05:30`,
+        occurredAt: `${today}T00:01:00+05:30`,
       })
       .expect(201);
     expect(managerCheckOut.body.event.locationValidation).toBe(
@@ -3769,4 +3770,245 @@ describe('Phase 1 SaaS foundation', () => {
       .set(authT)
       .expect(403);
   });
+
+  it('certifies staff records remain independent from product seats', async () => {
+    const platformAdmin = await register({
+      email: 'phase10d-platform-admin@example.com',
+      organizationName: 'Phase 10D Platform Admin',
+      organizationSlug: 'phase10d-platform-admin',
+    });
+    await pool.query(
+      `update users
+       set is_platform_admin = true, updated_at = now()
+       where email = 'phase10d-platform-admin@example.com'`,
+    );
+    const authAdmin = {
+      authorization: `Bearer ${platformAdmin.tokens.accessToken}`,
+    };
+
+    const tenant = await register({
+      email: 'phase10d-owner@example.com',
+      organizationName: 'Phase 10D Tenant',
+      organizationSlug: 'phase10d-tenant',
+    });
+    const auth = {
+      authorization: `Bearer ${tenant.tokens.accessToken}`,
+    };
+
+    const initialSummary = await request(app.getHttpServer())
+      .get('/v1/staff/seats/summary')
+      .set(auth)
+      .expect(200);
+    expect(initialSummary.body.staffRecords).toMatchObject({
+      total: 0,
+      active: 0,
+      billableByCreation: false,
+    });
+    expect(initialSummary.body.seats.usage.FULL).toBe(1);
+    expect(initialSummary.body.seats.limits.FULL).toBe(5);
+
+    const staff = await request(app.getHttpServer())
+      .post('/v1/staff/profiles')
+      .set(auth)
+      .send({
+        employeeCode: 'STAFF-001',
+        displayName: 'Non Billable Staff',
+        email: 'staff.one@example.com',
+        designation: 'Operations',
+        department: 'Operations',
+      })
+      .expect(201);
+    expect(staff.body.organizationMemberId).toBeNull();
+
+    const afterStaff = await request(app.getHttpServer())
+      .get('/v1/staff/seats/summary')
+      .set(auth)
+      .expect(200);
+    expect(afterStaff.body.staffRecords.total).toBe(1);
+    expect(afterStaff.body.seats.usage.FULL).toBe(1);
+
+    const members = await request(app.getHttpServer())
+      .get('/v1/staff/members/directory')
+      .set(auth)
+      .expect(200);
+    const owner = members.body.find(
+      (row: { isOwner: boolean }) => row.isOwner,
+    ) as { membershipId: string; seat: { accessClass: string } };
+    expect(owner.seat.accessClass).toBe('FULL');
+
+    await request(app.getHttpServer())
+      .delete(`/v1/staff/members/${owner.membershipId}/seat`)
+      .set(auth)
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/platform-admin/organizations/${tenant.organization.id}/extensions/attendance`,
+      )
+      .set(authAdmin)
+      .send({ enabled: true })
+      .expect(200);
+
+    const attendanceEmployee = await request(app.getHttpServer())
+      .post('/v1/attendance/employees')
+      .set(auth)
+      .send({
+        staffProfileId: staff.body.id,
+        employeeCode: 'STAFF-001',
+        displayName: 'Non Billable Staff',
+        email: 'staff.one@example.com',
+        designation: 'Operations',
+      })
+      .expect(201);
+    expect(attendanceEmployee.body.staffProfileId).toBe(staff.body.id);
+
+    const reusedStaff = await request(app.getHttpServer())
+      .get('/v1/staff/profiles?limit=50')
+      .set(auth)
+      .expect(200);
+    expect(reusedStaff.body).toHaveLength(1);
+    expect(reusedStaff.body[0].id).toBe(staff.body.id);
+
+    const memberPassword = 'SeatPassword123!';
+    const memberPasswordHash = await hash(memberPassword, 4);
+
+    async function createMember(label: string) {
+      const userId = randomUUID();
+      const membershipId = randomUUID();
+      await pool.query(
+        `insert into users
+          (id, email, password_hash, display_name, created_at, updated_at)
+         values
+          ('${userId}', '${label}@phase10d.example.com', '${memberPasswordHash}', '${label}', now(), now())`,
+      );
+      await pool.query(
+        `insert into organization_members
+          (id, organization_id, user_id, status, is_owner, created_at)
+         values
+          ('${membershipId}', '${tenant.organization.id}', '${userId}', 'ACTIVE', false, now())`,
+      );
+      return membershipId;
+    }
+
+    const attendanceMember = await createMember('attendance-seat-user');
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({
+        email: 'attendance-seat-user@phase10d.example.com',
+        password: memberPassword,
+        organizationSlug: 'phase10d-tenant',
+      })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .patch(`/v1/staff/profiles/${staff.body.id as string}`)
+      .set(auth)
+      .send({ organizationMemberId: attendanceMember })
+      .expect(200);
+
+    const attendanceSeat = await request(app.getHttpServer())
+      .put(`/v1/staff/members/${attendanceMember}/seat`)
+      .set(auth)
+      .send({ accessClass: 'ATTENDANCE_ONLY' })
+      .expect(200);
+    expect(attendanceSeat.body.accessClass).toBe('ATTENDANCE_ONLY');
+
+    const attendanceSummary = await request(app.getHttpServer())
+      .get('/v1/staff/seats/summary')
+      .set(auth)
+      .expect(200);
+    expect(attendanceSummary.body.seats.usage.FULL).toBe(1);
+    expect(attendanceSummary.body.seats.usage.ATTENDANCE_ONLY).toBe(1);
+
+    await request(app.getHttpServer())
+      .put(`/v1/staff/members/${attendanceMember}/seat`)
+      .set(auth)
+      .send({ accessClass: 'FULL' })
+      .expect(200);
+
+    const fullMemberB = await createMember('full-seat-b');
+    const fullMemberC = await createMember('full-seat-c');
+    const fullMemberD = await createMember('full-seat-d');
+    const overflowMember = await createMember('full-seat-overflow');
+
+    for (const membershipId of [fullMemberB, fullMemberC, fullMemberD]) {
+      await request(app.getHttpServer())
+        .put(`/v1/staff/members/${membershipId}/seat`)
+        .set(auth)
+        .send({ accessClass: 'FULL' })
+        .expect(200);
+    }
+
+    const memberLogin = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({
+        email: 'full-seat-b@phase10d.example.com',
+        password: memberPassword,
+        organizationSlug: 'phase10d-tenant',
+      })
+      .expect(201);
+    const memberAuth = {
+      authorization: `Bearer ${memberLogin.body.tokens.accessToken as string}`,
+    };
+    await request(app.getHttpServer())
+      .get('/v1/capabilities')
+      .set(memberAuth)
+      .expect(200);
+
+    const atLimit = await request(app.getHttpServer())
+      .get('/v1/staff/seats/summary')
+      .set(auth)
+      .expect(200);
+    expect(atLimit.body.seats.usage.FULL).toBe(5);
+    expect(atLimit.body.staffRecords.total).toBe(1);
+
+    await request(app.getHttpServer())
+      .put(`/v1/staff/members/${overflowMember}/seat`)
+      .set(auth)
+      .send({ accessClass: 'FULL' })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .delete(`/v1/staff/members/${fullMemberB}/seat`)
+      .set(auth)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/v1/capabilities')
+      .set(memberAuth)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/v1/auth/refresh')
+      .send({ refreshToken: memberLogin.body.tokens.refreshToken })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .put(`/v1/staff/members/${overflowMember}/seat`)
+      .set(auth)
+      .send({ accessClass: 'FULL' })
+      .expect(200);
+
+    const finalSummary = await request(app.getHttpServer())
+      .get('/v1/staff/seats/summary')
+      .set(auth)
+      .expect(200);
+    expect(finalSummary.body.seats.usage.FULL).toBe(5);
+    expect(finalSummary.body.staffRecords.total).toBe(1);
+
+    const auditRows = (await pool.query(
+      `select action
+       from audit_logs
+       where organization_id = '${tenant.organization.id}'
+         and action in ('staff.profile.create', 'staff.seat.assign', 'staff.seat.revoke')`,
+    )) as { rows: Array<{ action: string }> };
+    expect(auditRows.rows.map((row) => row.action)).toEqual(
+      expect.arrayContaining([
+        'staff.profile.create',
+        'staff.seat.assign',
+        'staff.seat.revoke',
+      ]),
+    );
+  });
+
 });

@@ -14,6 +14,7 @@ import { EnterpriseModule } from './modules/enterprise/enterprise.module.js';
 import { EnterpriseSecurityGuard } from './modules/enterprise/enterprise-security.guard.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
+import { StaffModule } from './modules/staff/staff.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { AuditModule } from './platform/audit/audit.module.js';
@@ -56,6 +57,7 @@ import { SecurityModule } from './platform/security/security.module.js';
     BusinessBillingModule,
     RealEstateModule,
     AttendanceModule,
+    StaffModule,
     OrganizationsModule,
     PlatformAdminModule,
   ],

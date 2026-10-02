@@ -15,6 +15,7 @@ import {
   developerOauthTokens,
 } from '../../modules/developer/developer.schema.js';
 import { hashCredential } from '../../modules/developer/developer-credentials.js';
+import { memberSeatAssignments } from '../../modules/staff/staff.schema.js';
 import { DatabaseService } from '../database/database.service.js';
 import {
   apiKeys,
@@ -100,12 +101,20 @@ export class JwtAuthGuard implements CanActivate {
         organizationId: sessions.organizationId,
         membershipId: sessions.organizationMemberId,
         isPlatformAdmin: users.isPlatformAdmin,
+        seatClass: memberSeatAssignments.accessClass,
       })
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
       .innerJoin(
         organizationMembers,
         eq(organizationMembers.id, sessions.organizationMemberId),
+      )
+      .innerJoin(
+        memberSeatAssignments,
+        eq(
+          memberSeatAssignments.organizationMemberId,
+          organizationMembers.id,
+        ),
       )
       .where(
         and(
@@ -114,6 +123,7 @@ export class JwtAuthGuard implements CanActivate {
           eq(sessions.organizationId, payload.org),
           eq(sessions.organizationMemberId, payload.membership),
           eq(organizationMembers.status, 'ACTIVE'),
+          eq(memberSeatAssignments.status, 'ACTIVE'),
           isNull(sessions.revokedAt),
           gt(sessions.expiresAt, new Date()),
         ),
@@ -132,6 +142,7 @@ export class JwtAuthGuard implements CanActivate {
       sessionId: session.sessionId,
       isPlatformAdmin: session.isPlatformAdmin,
       authType: 'SESSION',
+      seatClass: session.seatClass as Principal['seatClass'],
     };
 
     return true;
