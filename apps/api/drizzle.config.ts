@@ -13,7 +13,7 @@ export default defineConfig({
   dbCredentials: {
     url:
       process.env.DATABASE_URL ??
-      'postgresql://crm_ai:crm_ai_dev@localhost:55432/crm_ai',
+      'postgresql://crm_ai:crm_ai_dev@localhost:15432/crm_ai',
   },
   strict: true,
   verbose: true,

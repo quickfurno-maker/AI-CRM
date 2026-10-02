@@ -33,6 +33,13 @@ const ACTIONS = new Set([
   'SET_CONVERSATION_MODE',
 ]);
 
+const RETRY_SAFE_ACTIONS = new Set([
+  'CRM_UPDATE_LEAD',
+  'WHATSAPP_SEND_TEXT',
+  'WHATSAPP_SEND_TEMPLATE',
+  'SET_CONVERSATION_MODE',
+]);
+
 @Injectable()
 export class AutomationManagementService {
   constructor(private readonly database: DatabaseService) {}
@@ -613,6 +620,46 @@ export class AutomationManagementService {
           Array.isArray(node.config.input))
       ) {
         throw new BadRequestException('ACTION input must be an object.');
+      }
+
+      if (node.config.retry !== undefined) {
+        if (
+          typeof node.config.retry !== 'object' ||
+          node.config.retry === null ||
+          Array.isArray(node.config.retry)
+        ) {
+          throw new BadRequestException('ACTION retry must be an object.');
+        }
+        if (!RETRY_SAFE_ACTIONS.has(node.config.action)) {
+          throw new BadRequestException(
+            'Automatic retry is not allowed for this action because duplicate side effects cannot be proven safe.',
+          );
+        }
+        const retry = node.config.retry as Record<string, unknown>;
+        const maxAttempts = Number(retry.maxAttempts ?? 1);
+        const backoffSeconds = Number(retry.backoffSeconds ?? 5);
+        const multiplier = Number(retry.multiplier ?? 2);
+        const maxBackoffSeconds = Number(
+          retry.maxBackoffSeconds ?? 300,
+        );
+        if (
+          !Number.isInteger(maxAttempts) ||
+          maxAttempts < 2 ||
+          maxAttempts > 10 ||
+          !Number.isFinite(backoffSeconds) ||
+          backoffSeconds < 1 ||
+          backoffSeconds > 3600 ||
+          !Number.isFinite(multiplier) ||
+          multiplier < 1 ||
+          multiplier > 10 ||
+          !Number.isFinite(maxBackoffSeconds) ||
+          maxBackoffSeconds < backoffSeconds ||
+          maxBackoffSeconds > 86400
+        ) {
+          throw new BadRequestException(
+            'ACTION retry requires maxAttempts 2-10, backoffSeconds 1-3600, multiplier 1-10 and maxBackoffSeconds up to 86400.',
+          );
+        }
       }
       return;
     }

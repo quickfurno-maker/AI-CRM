@@ -7,8 +7,8 @@ import {
 
 const databaseUrl =
   process.env.DATABASE_URL ??
-  'postgresql://crm_ai:crm_ai_dev@localhost:55432/crm_ai';
-const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:56379';
+  'postgresql://crm_ai:crm_ai_dev@localhost:15432/crm_ai';
+const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16379';
 const eventStream = process.env.EVENT_STREAM ?? 'crm-ai:events';
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });

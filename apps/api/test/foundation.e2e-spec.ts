@@ -1572,4 +1572,666 @@ describe('Phase 1 SaaS foundation', () => {
       .set(authJ)
       .expect(404);
   });
+
+  it('hardens automation retries pause cancel and reconciliation safely', async () => {
+    const tenantK = await register({
+      email: 'automation-hardening-k@example.com',
+      organizationName: 'Automation Hardening K',
+      organizationSlug: 'automation-hardening-k',
+    });
+    const tenantL = await register({
+      email: 'automation-hardening-l@example.com',
+      organizationName: 'Automation Hardening L',
+      organizationSlug: 'automation-hardening-l',
+    });
+    const authK = {
+      authorization: `Bearer ${tenantK.tokens.accessToken}`,
+    };
+    const authL = {
+      authorization: `Bearer ${tenantL.tokens.accessToken}`,
+    };
+
+    const retryWorkflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authK)
+      .send({
+        key: 'retry-safe-update',
+        name: 'Retry Safe Update',
+        triggerType: 'MANUAL',
+        triggerConfig: {},
+      })
+      .expect(201);
+
+    const retryWorkflowId = retryWorkflow.body.workflow.id as string;
+    const retryVersionId = retryWorkflow.body.version.id as string;
+    const missingLeadId = randomUUID();
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${retryWorkflowId}/versions/${retryVersionId}/graph`,
+      )
+      .set(authK)
+      .send({
+        startNodeKey: 'update_missing_lead',
+        nodes: [
+          {
+            nodeKey: 'update_missing_lead',
+            nodeType: 'ACTION',
+            name: 'Update missing lead',
+            config: {
+              action: 'CRM_UPDATE_LEAD',
+              input: {
+                leadId: missingLeadId,
+                status: 'QUALIFIED',
+              },
+              retry: {
+                maxAttempts: 2,
+                backoffSeconds: 1,
+                multiplier: 1,
+                maxBackoffSeconds: 1,
+              },
+            },
+          },
+          {
+            nodeKey: 'retry_end',
+            nodeType: 'END',
+            name: 'Done',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'retry_to_end',
+            sourceNodeKey: 'update_missing_lead',
+            targetNodeKey: 'retry_end',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${retryWorkflowId}/versions/${retryVersionId}/activate`,
+      )
+      .set(authK)
+      .expect(201);
+
+    const retryStarted = await request(app.getHttpServer())
+      .post(`/v1/automation/workflows/${retryWorkflowId}/trigger`)
+      .set(authK)
+      .send({ context: {} })
+      .expect(201);
+
+    expect(retryStarted.body.run.status).toBe('WAITING');
+    const retryRunId = retryStarted.body.run.id as string;
+    expect(retryStarted.body.steps[0]).toMatchObject({
+      nodeKey: 'update_missing_lead',
+      status: 'RETRY_WAIT',
+      attempt: 1,
+    });
+
+    const paused = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${retryRunId}/pause`)
+      .set(authK)
+      .send({ reason: 'Operator inspection.' })
+      .expect(201);
+    expect(paused.body.status).toBe('PAUSED');
+
+    await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${retryRunId}/pause`)
+      .set(authL)
+      .send({})
+      .expect(404);
+
+    const resumedWaiting = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${retryRunId}/resume-paused`)
+      .set(authK)
+      .expect(201);
+    expect(resumedWaiting.body.run.status).toBe('WAITING');
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const retryFinished = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${retryRunId}/resume`)
+      .set(authK)
+      .expect(201);
+    expect(retryFinished.body.run.status).toBe('FAILED');
+    expect(
+      retryFinished.body.steps.filter(
+        (step: { nodeKey: string }) =>
+          step.nodeKey === 'update_missing_lead',
+      ),
+    ).toHaveLength(2);
+
+    const cancelWorkflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authK)
+      .send({
+        key: 'cancellable-wait',
+        name: 'Cancellable Wait',
+        triggerType: 'MANUAL',
+        triggerConfig: {},
+      })
+      .expect(201);
+    const cancelWorkflowId = cancelWorkflow.body.workflow.id as string;
+    const cancelVersionId = cancelWorkflow.body.version.id as string;
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${cancelWorkflowId}/versions/${cancelVersionId}/graph`,
+      )
+      .set(authK)
+      .send({
+        startNodeKey: 'wait_cancel',
+        nodes: [
+          {
+            nodeKey: 'wait_cancel',
+            nodeType: 'WAIT',
+            name: 'Wait',
+            config: { durationSeconds: 60 },
+          },
+          {
+            nodeKey: 'cancel_end',
+            nodeType: 'END',
+            name: 'End',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'wait_cancel_end',
+            sourceNodeKey: 'wait_cancel',
+            targetNodeKey: 'cancel_end',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${cancelWorkflowId}/versions/${cancelVersionId}/activate`,
+      )
+      .set(authK)
+      .expect(201);
+
+    const cancelStarted = await request(app.getHttpServer())
+      .post(`/v1/automation/workflows/${cancelWorkflowId}/trigger`)
+      .set(authK)
+      .send({ context: {} })
+      .expect(201);
+    const cancelRunId = cancelStarted.body.run.id as string;
+
+    const cancelled = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${cancelRunId}/cancel`)
+      .set(authK)
+      .send({ reason: 'No longer required.' })
+      .expect(201);
+    expect(cancelled.body.run.status).toBe('CANCELLED');
+
+    const ambiguousWorkflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authK)
+      .send({
+        key: 'ambiguous-ai-action',
+        name: 'Ambiguous AI Action',
+        triggerType: 'MANUAL',
+        triggerConfig: {},
+      })
+      .expect(201);
+    const ambiguousWorkflowId =
+      ambiguousWorkflow.body.workflow.id as string;
+    const ambiguousVersionId =
+      ambiguousWorkflow.body.version.id as string;
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${ambiguousWorkflowId}/versions/${ambiguousVersionId}/graph`,
+      )
+      .set(authK)
+      .send({
+        startNodeKey: 'bad_ai',
+        nodes: [
+          {
+            nodeKey: 'bad_ai',
+            nodeType: 'ACTION',
+            name: 'Unavailable AI agent',
+            config: {
+              action: 'AI_RUN_AGENT',
+              input: {
+                agentId: randomUUID(),
+                input: 'Test ambiguous action handling.',
+              },
+            },
+          },
+          {
+            nodeKey: 'ambiguous_end',
+            nodeType: 'END',
+            name: 'End',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'bad_ai_end',
+            sourceNodeKey: 'bad_ai',
+            targetNodeKey: 'ambiguous_end',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${ambiguousWorkflowId}/versions/${ambiguousVersionId}/activate`,
+      )
+      .set(authK)
+      .expect(201);
+
+    const ambiguousStarted = await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${ambiguousWorkflowId}/trigger`,
+      )
+      .set(authK)
+      .send({ context: {} })
+      .expect(201);
+    const ambiguousRunId = ambiguousStarted.body.run.id as string;
+    expect(ambiguousStarted.body.run.status).toBe('ACTION_REQUIRED');
+
+    await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${ambiguousRunId}/reconcile`)
+      .set(authK)
+      .send({
+        action: 'RETRY',
+        reason: 'Attempt retry without reconciliation proof.',
+      })
+      .expect(409);
+
+    const reconciledCancel = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${ambiguousRunId}/reconcile`)
+      .set(authK)
+      .send({
+        action: 'CANCEL',
+        reason: 'Operator chose not to repeat an ambiguous external action.',
+      })
+      .expect(201);
+    expect(reconciledCancel.body.run.status).toBe('CANCELLED');
+  });
+
+  it('certifies CRM AI WhatsApp follow-up and human handoff as one automation journey', async () => {
+    const tenantM = await register({
+      email: 'automation-certification-m@example.com',
+      organizationName: 'Automation Certification M',
+      organizationSlug: 'automation-certification-m',
+    });
+    const authM = {
+      authorization: `Bearer ${tenantM.tokens.accessToken}`,
+    };
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authM)
+      .send({
+        displayName: 'Certified Client',
+        phone: '919844444444',
+        source: 'WHATSAPP',
+      })
+      .expect(201);
+
+    const lead = await request(app.getHttpServer())
+      .post('/v1/crm/leads')
+      .set(authM)
+      .send({
+        title: 'Certified AI WhatsApp enquiry',
+        contactId: contact.body.id,
+        source: 'WHATSAPP',
+        temperature: 'COLD',
+      })
+      .expect(201);
+
+    const signup = await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/begin')
+      .set(authM)
+      .send({})
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/v1/communication/meta/embedded-signup/complete')
+      .set(authM)
+      .send({
+        connectionId: signup.body.connectionId,
+        signupState: signup.body.state,
+        authorizationCode: 'mock-certification-code',
+        businessPortfolioId: 'business-certification-m',
+        wabaId: 'waba-certification-m',
+        phoneNumberId: 'phone-certification-m',
+        displayName: 'Certified WhatsApp',
+        displayAddress: '+91 90000 00010',
+      })
+      .expect(201);
+
+    const inboundPayload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-certification-m',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  display_phone_number: '919000000010',
+                  phone_number_id: 'phone-certification-m',
+                },
+                contacts: [
+                  {
+                    profile: { name: 'Certified Client' },
+                    wa_id: '919844444444',
+                  },
+                ],
+                messages: [
+                  {
+                    from: '919844444444',
+                    id: 'wamid.certification.inbound.1',
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    type: 'text',
+                    text: {
+                      body: 'I am interested. Please tell me the next step.',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const inboundRaw = JSON.stringify(inboundPayload);
+    const inboundSignature =
+      'sha256=' +
+      createHmac('sha256', 'test-meta-app-secret')
+        .update(inboundRaw)
+        .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/webhooks/meta/whatsapp')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', inboundSignature)
+      .send(inboundRaw)
+      .expect(201);
+
+    const conversations = await request(app.getHttpServer())
+      .get('/v1/communication/conversations')
+      .set(authM)
+      .expect(200);
+    const conversation = conversations.body.find(
+      (item: { contactId: string }) => item.contactId === contact.body.id,
+    );
+    expect(conversation).toBeTruthy();
+
+    const agent = await request(app.getHttpServer())
+      .post('/v1/ai/agents')
+      .set(authM)
+      .send({
+        key: 'certification-sales-agent',
+        name: 'Certification Sales Agent',
+        role: 'SALES_QUALIFICATION',
+        instructions:
+          'Qualify the current client enquiry and return a concise internal recommendation. Do not invent facts.',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/agents/${agent.body.agent.id as string}/versions/${agent.body.version.id as string}/activate`,
+      )
+      .set(authM)
+      .expect(201);
+
+    const workflow = await request(app.getHttpServer())
+      .post('/v1/automation/workflows')
+      .set(authM)
+      .send({
+        key: 'certified-client-journey',
+        name: 'Certified Client Journey',
+        triggerType: 'EVENT',
+        triggerConfig: {
+          eventTypes: ['crm.lead.created.v1'],
+        },
+      })
+      .expect(201);
+
+    const workflowId = workflow.body.workflow.id as string;
+    const versionId = workflow.body.version.id as string;
+
+    await request(app.getHttpServer())
+      .put(
+        `/v1/automation/workflows/${workflowId}/versions/${versionId}/graph`,
+      )
+      .set(authM)
+      .send({
+        startNodeKey: 'qualify_ai',
+        nodes: [
+          {
+            nodeKey: 'qualify_ai',
+            nodeType: 'ACTION',
+            name: 'AI qualification',
+            config: {
+              action: 'AI_RUN_AGENT',
+              input: {
+                agentId: agent.body.agent.id,
+                contactId: '{{event.payload.contactId}}',
+                conversationId: '{{event.payload.conversationId}}',
+                input:
+                  'Qualify lead {{event.payload.leadId}} from the active WhatsApp conversation.',
+                routing: 'FAST',
+              },
+            },
+          },
+          {
+            nodeKey: 'score_lead',
+            nodeType: 'ACTION',
+            name: 'Score lead',
+            config: {
+              action: 'CRM_UPDATE_LEAD',
+              input: {
+                leadId: '{{event.payload.leadId}}',
+                temperature: 'HOT',
+                score: 85,
+                status: 'QUALIFIED',
+              },
+              retry: {
+                maxAttempts: 3,
+                backoffSeconds: 1,
+                multiplier: 2,
+                maxBackoffSeconds: 5,
+              },
+            },
+          },
+          {
+            nodeKey: 'first_followup',
+            nodeType: 'ACTION',
+            name: 'First WhatsApp follow-up',
+            config: {
+              action: 'WHATSAPP_SEND_TEXT',
+              input: {
+                conversationId: '{{event.payload.conversationId}}',
+                text:
+                  'Thanks {{event.payload.name}}. Your requirement is qualified. Our team is reviewing the next step.',
+              },
+            },
+          },
+          {
+            nodeKey: 'wait_followup',
+            nodeType: 'WAIT',
+            name: 'Wait before second follow-up',
+            config: { durationSeconds: 1 },
+          },
+          {
+            nodeKey: 'second_followup',
+            nodeType: 'ACTION',
+            name: 'Second WhatsApp follow-up',
+            config: {
+              action: 'WHATSAPP_SEND_TEXT',
+              input: {
+                conversationId: '{{event.payload.conversationId}}',
+                text:
+                  'A human specialist can now continue from here. I am handing over the conversation.',
+              },
+            },
+          },
+          {
+            nodeKey: 'human_handoff',
+            nodeType: 'ACTION',
+            name: 'Human handoff',
+            config: {
+              action: 'SET_CONVERSATION_MODE',
+              input: {
+                conversationId: '{{event.payload.conversationId}}',
+                handlingMode: 'HUMAN',
+              },
+            },
+          },
+          {
+            nodeKey: 'journey_end',
+            nodeType: 'END',
+            name: 'Journey complete',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            edgeKey: 'ai_to_score',
+            sourceNodeKey: 'qualify_ai',
+            targetNodeKey: 'score_lead',
+          },
+          {
+            edgeKey: 'score_to_first',
+            sourceNodeKey: 'score_lead',
+            targetNodeKey: 'first_followup',
+          },
+          {
+            edgeKey: 'first_to_wait',
+            sourceNodeKey: 'first_followup',
+            targetNodeKey: 'wait_followup',
+          },
+          {
+            edgeKey: 'wait_to_second',
+            sourceNodeKey: 'wait_followup',
+            targetNodeKey: 'second_followup',
+          },
+          {
+            edgeKey: 'second_to_handoff',
+            sourceNodeKey: 'second_followup',
+            targetNodeKey: 'human_handoff',
+          },
+          {
+            edgeKey: 'handoff_to_end',
+            sourceNodeKey: 'human_handoff',
+            targetNodeKey: 'journey_end',
+          },
+        ],
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/automation/workflows/${workflowId}/versions/${versionId}/activate`,
+      )
+      .set(authM)
+      .expect(201);
+
+    const event = {
+      eventId: 'certification-event-1',
+      eventType: 'crm.lead.created.v1',
+      aggregateType: 'lead',
+      aggregateId: lead.body.id,
+      payload: {
+        leadId: lead.body.id,
+        contactId: contact.body.id,
+        conversationId: conversation.id,
+        name: 'Certified Client',
+      },
+      correlationId: 'certification-journey-1',
+    };
+
+    const started = await request(app.getHttpServer())
+      .post('/v1/automation/events/process')
+      .set(authM)
+      .send(event)
+      .expect(201);
+    expect(started.body[0]?.status).toBe('STARTED');
+
+    const certifiedRunId = started.body[0].runId as string;
+    const waiting = await request(app.getHttpServer())
+      .get(`/v1/automation/runs/${certifiedRunId}`)
+      .set(authM)
+      .expect(200);
+    expect(waiting.body.run.status).toBe('WAITING');
+    expect(
+      waiting.body.steps.some(
+        (step: { nodeKey: string; status: string }) =>
+          step.nodeKey === 'qualify_ai' &&
+          step.status === 'COMPLETED',
+      ),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const completed = await request(app.getHttpServer())
+      .post(`/v1/automation/runs/${certifiedRunId}/resume`)
+      .set(authM)
+      .expect(201);
+    expect(completed.body.run.status).toBe('COMPLETED');
+
+    const leads = await request(app.getHttpServer())
+      .get('/v1/crm/leads')
+      .set(authM)
+      .expect(200);
+    const updatedLead = leads.body.find(
+      (item: { id: string }) => item.id === lead.body.id,
+    );
+    expect(updatedLead).toMatchObject({
+      status: 'QUALIFIED',
+      temperature: 'HOT',
+      score: 85,
+    });
+
+    const messages = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversation.id as string}/messages`,
+      )
+      .set(authM)
+      .expect(200);
+    expect(
+      messages.body.filter(
+        (item: { direction: string }) => item.direction === 'OUTBOUND',
+      ),
+    ).toHaveLength(2);
+
+    const finalConversation = await request(app.getHttpServer())
+      .get(`/v1/communication/conversations/${conversation.id as string}`)
+      .set(authM)
+      .expect(200);
+    expect(finalConversation.body.handlingMode).toBe('HUMAN');
+
+    const duplicate = await request(app.getHttpServer())
+      .post('/v1/automation/events/process')
+      .set(authM)
+      .send(event)
+      .expect(201);
+    expect(duplicate.body[0]?.status).toBe('DUPLICATE');
+
+    const messagesAfterDuplicate = await request(app.getHttpServer())
+      .get(
+        `/v1/communication/conversations/${conversation.id as string}/messages`,
+      )
+      .set(authM)
+      .expect(200);
+    expect(
+      messagesAfterDuplicate.body.filter(
+        (item: { direction: string }) => item.direction === 'OUTBOUND',
+      ),
+    ).toHaveLength(2);
+  });
 });

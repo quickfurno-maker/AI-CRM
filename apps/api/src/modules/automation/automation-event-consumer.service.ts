@@ -36,7 +36,7 @@ export class AutomationEventConsumerService
 
     this.redis = new Redis(
       this.config.get<string>('REDIS_URL') ??
-        'redis://localhost:56379',
+        'redis://localhost:16379',
       {
         lazyConnect: true,
         maxRetriesPerRequest: null,

@@ -33,7 +33,7 @@ export class AiWhatsappConsumerService
 
     const redisUrl =
       this.config.get<string>('REDIS_URL') ??
-      'redis://localhost:56379';
+      'redis://localhost:16379';
     this.redis = new Redis(redisUrl, {
       lazyConnect: true,
       maxRetriesPerRequest: null,

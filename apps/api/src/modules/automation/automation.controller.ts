@@ -14,10 +14,13 @@ import { RequirePermission } from '../../platform/permissions/require-permission
 import { AutomationManagementService } from './automation-management.service.js';
 import { AutomationRuntimeService } from './automation-runtime.service.js';
 import {
+  CancelAutomationRunDto,
   CreateWorkflowDto,
   CreateWorkflowVersionDto,
   DecideAutomationApprovalDto,
+  PauseAutomationRunDto,
   ProcessAutomationEventDto,
+  ReconcileAutomationRunDto,
   SaveWorkflowGraphDto,
   TriggerWorkflowDto,
 } from './dto/automation.dto.js';
@@ -147,6 +150,51 @@ export class AutomationController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.runtime.resumeDueRun(principal, id);
+  }
+
+  @Post('runs/:id/pause')
+  @RequirePermission('automation.run.manage')
+  pauseRun(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PauseAutomationRunDto,
+  ) {
+    return this.runtime.pauseRun(principal, id, dto.reason);
+  }
+
+  @Post('runs/:id/resume-paused')
+  @RequirePermission('automation.run.manage')
+  resumePausedRun(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.runtime.resumePausedRun(principal, id);
+  }
+
+  @Post('runs/:id/cancel')
+  @RequirePermission('automation.run.manage')
+  cancelRun(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelAutomationRunDto,
+  ) {
+    return this.runtime.cancelRun(principal, id, dto.reason);
+  }
+
+  @Post('runs/:id/reconcile')
+  @RequirePermission('automation.run.manage')
+  reconcileRun(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReconcileAutomationRunDto,
+  ) {
+    return this.runtime.reconcileRun(
+      principal,
+      id,
+      dto.action as 'RETRY' | 'CANCEL',
+      dto.reason,
+      dto.confirmedNoSideEffect ?? false,
+    );
   }
 
   @Post('events/process')

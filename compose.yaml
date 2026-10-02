@@ -1,12 +1,12 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:0.8.6-pg17-trixie
     environment:
       POSTGRES_USER: crm_ai
       POSTGRES_PASSWORD: crm_ai_dev
       POSTGRES_DB: crm_ai
     ports:
-      - "55432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - crm_ai_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "56379:6379"
+      - "127.0.0.1:16379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - crm_ai_redis:/data

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
@@ -395,6 +395,7 @@ export class AutomationRuntimeService {
         );
       }
 
+      const attempt = (already[0]?.attempt ?? 0) + 1;
       const [step] = await this.database.db
         .insert(automationStepRuns)
         .values({
@@ -403,6 +404,7 @@ export class AutomationRuntimeService {
           nodeId: node.id,
           nodeKey: node.nodeKey,
           nodeType: node.nodeType,
+          attempt,
           status: 'RUNNING',
           input: {
             config: node.config,
@@ -436,6 +438,72 @@ export class AutomationRuntimeService {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
+        const retry = this.retryPolicy(node.config);
+        const action =
+          node.nodeType === 'ACTION' &&
+          typeof node.config.action === 'string'
+            ? node.config.action
+            : undefined;
+
+        if (
+          retry &&
+          step.attempt < retry.maxAttempts &&
+          (!action || this.isRetrySafeAction(action))
+        ) {
+          const delaySeconds = Math.min(
+            retry.backoffSeconds *
+              Math.pow(retry.multiplier, Math.max(step.attempt - 1, 0)),
+            retry.maxBackoffSeconds,
+          );
+          const wakeAt = new Date(Date.now() + delaySeconds * 1000);
+
+          await this.database.db.transaction(async (tx) => {
+            await tx
+              .update(automationStepRuns)
+              .set({
+                status: 'RETRY_WAIT',
+                errorMessage: message.slice(0, 4000),
+                wakeAt,
+                completedAt: new Date(),
+              })
+              .where(eq(automationStepRuns.id, step.id));
+
+            await tx
+              .update(automationRuns)
+              .set({
+                status: 'WAITING',
+                wakeAt,
+                lastError: message.slice(0, 4000),
+                updatedAt: new Date(),
+              })
+              .where(eq(automationRuns.id, runId));
+
+            await tx.insert(outboxEvents).values({
+              organizationId: runRecord.organizationId,
+              eventType: 'automation.step.retry_scheduled.v1',
+              aggregateType: 'automation_run',
+              aggregateId: runId,
+              payload: {
+                runId,
+                nodeKey: node.nodeKey,
+                attempt: step.attempt,
+                nextAttempt: step.attempt + 1,
+                wakeAt: wakeAt.toISOString(),
+                error: message.slice(0, 1000),
+              },
+              correlationId: runRecord.correlationId,
+              causationId: runRecord.triggerEventId ?? undefined,
+            });
+          });
+
+          const refreshed = await this.database.db
+            .select()
+            .from(automationRuns)
+            .where(eq(automationRuns.id, runId))
+            .limit(1);
+          return refreshed[0];
+        }
+
         await this.database.db
           .update(automationStepRuns)
           .set({
@@ -444,6 +512,15 @@ export class AutomationRuntimeService {
             completedAt: new Date(),
           })
           .where(eq(automationStepRuns.id, step.id));
+
+        if (action && this.isAmbiguousExternalAction(action)) {
+          return this.actionRequired(
+            runId,
+            'External action failed or returned an ambiguous result: ' +
+              message,
+          );
+        }
+
         return this.failRun(runId, message);
       }
     }
@@ -770,6 +847,288 @@ export class AutomationRuntimeService {
     return this.getRunDetail(principal, row.run.id);
   }
 
+  async pauseRun(
+    principal: Principal,
+    runId: string,
+    reason?: string,
+  ) {
+    const run = await this.getRun(principal, runId);
+    if (!['RUNNING', 'WAITING'].includes(run.status)) {
+      throw new ConflictException(
+        'Only RUNNING or WAITING automation runs can be paused.',
+      );
+    }
+
+    const context = {
+      ...run.context,
+      control: {
+        previousStatus: run.status,
+        pausedAt: new Date().toISOString(),
+        reason: reason?.trim(),
+      },
+    };
+
+    const [updated] = await this.database.db
+      .update(automationRuns)
+      .set({
+        status: 'PAUSED',
+        context,
+        lastError: reason?.trim() || run.lastError,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(automationRuns.organizationId, principal.organizationId),
+          eq(automationRuns.id, runId),
+        ),
+      )
+      .returning();
+
+    await this.database.db.insert(auditLogs).values({
+      organizationId: principal.organizationId,
+      workspaceId: run.workspaceId,
+      actorType: 'USER',
+      actorId: principal.userId,
+      action: 'automation.run.pause',
+      resourceType: 'automation_run',
+      resourceId: runId,
+      metadata: { reason },
+    });
+
+    await this.database.db.insert(outboxEvents).values({
+      organizationId: principal.organizationId,
+      eventType: 'automation.run.paused.v1',
+      aggregateType: 'automation_run',
+      aggregateId: runId,
+      payload: { runId, reason },
+      correlationId: run.correlationId,
+      causationId: run.triggerEventId ?? undefined,
+    });
+
+    return updated;
+  }
+
+  async resumePausedRun(principal: Principal, runId: string) {
+    const run = await this.getRun(principal, runId);
+    if (run.status !== 'PAUSED') {
+      throw new ConflictException('Only PAUSED automation runs can be resumed.');
+    }
+
+    const control =
+      run.context.control &&
+      typeof run.context.control === 'object' &&
+      !Array.isArray(run.context.control)
+        ? (run.context.control as Record<string, unknown>)
+        : {};
+    const previousStatus =
+      typeof control.previousStatus === 'string'
+        ? control.previousStatus
+        : 'RUNNING';
+    const shouldWait =
+      previousStatus === 'WAITING' &&
+      run.wakeAt &&
+      run.wakeAt.getTime() > Date.now();
+
+    const [updated] = await this.database.db
+      .update(automationRuns)
+      .set({
+        status: shouldWait ? 'WAITING' : 'RUNNING',
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(automationRuns.organizationId, principal.organizationId),
+          eq(automationRuns.id, runId),
+        ),
+      )
+      .returning();
+
+    await this.database.db.insert(auditLogs).values({
+      organizationId: principal.organizationId,
+      workspaceId: run.workspaceId,
+      actorType: 'USER',
+      actorId: principal.userId,
+      action: 'automation.run.resume',
+      resourceType: 'automation_run',
+      resourceId: runId,
+    });
+
+    if (!shouldWait) {
+      await this.executeRun(runId);
+      return this.getRunDetail(principal, runId);
+    }
+
+    return { run: updated, steps: [] };
+  }
+
+  async cancelRun(
+    principal: Principal,
+    runId: string,
+    reason?: string,
+  ) {
+    const run = await this.getRun(principal, runId);
+    if (
+      ['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.status)
+    ) {
+      throw new ConflictException('Automation run is already terminal.');
+    }
+
+    const now = new Date();
+    await this.database.db.transaction(async (tx) => {
+      await tx
+        .update(automationRuns)
+        .set({
+          status: 'CANCELLED',
+          currentNodeKey: null,
+          wakeAt: null,
+          lastError: reason?.trim() || 'Cancelled by operator.',
+          completedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(automationRuns.organizationId, principal.organizationId),
+            eq(automationRuns.id, runId),
+          ),
+        );
+
+      await tx
+        .update(automationStepRuns)
+        .set({
+          status: 'CANCELLED',
+          errorMessage: reason?.trim() || 'Cancelled by operator.',
+          completedAt: now,
+        })
+        .where(
+          and(
+            eq(automationStepRuns.organizationId, principal.organizationId),
+            eq(automationStepRuns.runId, runId),
+            inArray(automationStepRuns.status, [
+              'RUNNING',
+              'WAITING_APPROVAL',
+              'RETRY_WAIT',
+            ]),
+          ),
+        );
+
+      await tx
+        .update(automationApprovals)
+        .set({
+          status: 'CANCELLED',
+          reason: reason?.trim() || 'Run cancelled by operator.',
+          decidedAt: now,
+        })
+        .where(
+          and(
+            eq(automationApprovals.organizationId, principal.organizationId),
+            eq(automationApprovals.runId, runId),
+            eq(automationApprovals.status, 'PENDING'),
+          ),
+        );
+
+      await tx.insert(auditLogs).values({
+        organizationId: principal.organizationId,
+        workspaceId: run.workspaceId,
+        actorType: 'USER',
+        actorId: principal.userId,
+        action: 'automation.run.cancel',
+        resourceType: 'automation_run',
+        resourceId: runId,
+        metadata: { reason },
+      });
+
+      await tx.insert(outboxEvents).values({
+        organizationId: principal.organizationId,
+        eventType: 'automation.run.cancelled.v1',
+        aggregateType: 'automation_run',
+        aggregateId: runId,
+        payload: { runId, reason },
+        correlationId: run.correlationId,
+        causationId: run.triggerEventId ?? undefined,
+      });
+    });
+
+    return this.getRunDetail(principal, runId);
+  }
+
+  async reconcileRun(
+    principal: Principal,
+    runId: string,
+    action: 'RETRY' | 'CANCEL',
+    reason: string,
+    confirmedNoSideEffect = false,
+  ) {
+    const run = await this.getRun(principal, runId);
+    if (run.status !== 'ACTION_REQUIRED') {
+      throw new ConflictException(
+        'Only ACTION_REQUIRED automation runs can be reconciled.',
+      );
+    }
+
+    if (action === 'CANCEL') {
+      return this.cancelRun(principal, runId, reason);
+    }
+
+    if (!confirmedNoSideEffect) {
+      throw new ConflictException(
+        'Retry requires confirmation that the previous attempt caused no external side effect.',
+      );
+    }
+
+    const latest = await this.database.db
+      .select()
+      .from(automationStepRuns)
+      .where(
+        and(
+          eq(automationStepRuns.organizationId, principal.organizationId),
+          eq(automationStepRuns.runId, runId),
+        ),
+      )
+      .orderBy(desc(automationStepRuns.createdAt))
+      .limit(1);
+
+    if (latest[0]?.status === 'RUNNING') {
+      await this.database.db
+        .update(automationStepRuns)
+        .set({
+          status: 'RECONCILED_RETRY',
+          errorMessage: reason.trim(),
+          completedAt: new Date(),
+        })
+        .where(eq(automationStepRuns.id, latest[0].id));
+    }
+
+    await this.database.db
+      .update(automationRuns)
+      .set({
+        status: 'RUNNING',
+        lastError: null,
+        wakeAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(automationRuns.organizationId, principal.organizationId),
+          eq(automationRuns.id, runId),
+        ),
+      );
+
+    await this.database.db.insert(auditLogs).values({
+      organizationId: principal.organizationId,
+      workspaceId: run.workspaceId,
+      actorType: 'USER',
+      actorId: principal.userId,
+      action: 'automation.run.reconcile_retry',
+      resourceType: 'automation_run',
+      resourceId: runId,
+      metadata: { reason, confirmedNoSideEffect },
+    });
+
+    await this.executeRun(runId);
+    return this.getRunDetail(principal, runId);
+  }
+
   listApprovals(principal: Principal) {
     return this.database.db
       .select()
@@ -975,6 +1334,60 @@ export class AutomationRuntimeService {
       .returning();
     return run;
   }
+  private retryPolicy(config: Record<string, unknown>) {
+    const raw = config.retry;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return undefined;
+    }
+
+    const retry = raw as Record<string, unknown>;
+    const maxAttempts = Number(retry.maxAttempts ?? 1);
+    const backoffSeconds = Number(retry.backoffSeconds ?? 5);
+    const multiplier = Number(retry.multiplier ?? 2);
+    const maxBackoffSeconds = Number(retry.maxBackoffSeconds ?? 300);
+
+    if (
+      !Number.isInteger(maxAttempts) ||
+      maxAttempts < 2 ||
+      maxAttempts > 10 ||
+      !Number.isFinite(backoffSeconds) ||
+      backoffSeconds < 1 ||
+      backoffSeconds > 3600 ||
+      !Number.isFinite(multiplier) ||
+      multiplier < 1 ||
+      multiplier > 10 ||
+      !Number.isFinite(maxBackoffSeconds) ||
+      maxBackoffSeconds < backoffSeconds ||
+      maxBackoffSeconds > 86400
+    ) {
+      return undefined;
+    }
+
+    return {
+      maxAttempts,
+      backoffSeconds,
+      multiplier,
+      maxBackoffSeconds,
+    };
+  }
+
+  private isRetrySafeAction(action: string) {
+    return new Set([
+      'CRM_UPDATE_LEAD',
+      'WHATSAPP_SEND_TEXT',
+      'WHATSAPP_SEND_TEMPLATE',
+      'SET_CONVERSATION_MODE',
+    ]).has(action);
+  }
+
+  private isAmbiguousExternalAction(action: string) {
+    return new Set([
+      'WHATSAPP_SEND_TEXT',
+      'WHATSAPP_SEND_TEMPLATE',
+      'AI_RUN_AGENT',
+    ]).has(action);
+  }
+
   private evaluateCondition(
     config: Record<string, unknown>,
     context: Record<string, unknown>,

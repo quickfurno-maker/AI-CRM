@@ -79,6 +79,26 @@ type Run = {
   completedAt?: string | null;
 };
 
+type StepRun = {
+  id: string;
+  runId: string;
+  nodeKey: string;
+  nodeType: string;
+  attempt: number;
+  status: string;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  wakeAt?: string | null;
+  errorMessage?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+};
+
+type RunDetail = {
+  run: Run;
+  steps: StepRun[];
+};
+
 type Approval = {
   id: string;
   runId: string;
@@ -194,6 +214,17 @@ export default function AutomationsPage() {
   const [edgePriority, setEdgePriority] = useState('0');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [runDetail, setRunDetail] = useState<RunDetail>();
+  const [versionComparison, setVersionComparison] = useState<{
+    baseVersion: number;
+    targetVersion: number;
+    addedNodes: string[];
+    removedNodes: string[];
+    changedNodes: string[];
+    addedEdges: string[];
+    removedEdges: string[];
+    changedEdges: string[];
+  }>();
 
   const selectedWorkflow = workflows.find(
     (item) => item.id === selectedWorkflowId,
@@ -413,6 +444,18 @@ export default function AutomationsPage() {
       ),
     );
   }
+
+  function updateSelectedNodeConfig(config: Record<string, unknown>) {
+    if (!selectedNodeId) return;
+    setNodes((current) =>
+      current.map((item) =>
+        item.id === selectedNodeId
+          ? { ...item, data: { ...item.data, config } }
+          : item,
+      ),
+    );
+    setConfigText(JSON.stringify(config, null, 2));
+  }
   function updateEdge() {
     if (!selectedEdgeId) return;
     const priority = Number.parseInt(edgePriority || '0', 10);
@@ -547,6 +590,109 @@ export default function AutomationsPage() {
     }
   }
 
+  async function comparePreviousVersion() {
+    if (!selectedWorkflowId || !selectedVersion) return;
+    const previous = versions
+      .filter((item) => item.version < selectedVersion.version)
+      .sort((a, b) => b.version - a.version)[0];
+
+    if (!previous) {
+      setError('There is no earlier workflow version to compare.');
+      setVersionComparison(undefined);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const [base, target] = await Promise.all([
+        api<Graph>(
+          'workflows/' +
+            selectedWorkflowId +
+            '/versions/' +
+            previous.id +
+            '/graph',
+        ),
+        api<Graph>(
+          'workflows/' +
+            selectedWorkflowId +
+            '/versions/' +
+            selectedVersion.id +
+            '/graph',
+        ),
+      ]);
+
+      const baseNodes = new Map(
+        base.nodes.map((node) => [node.nodeKey, node]),
+      );
+      const targetNodes = new Map(
+        target.nodes.map((node) => [node.nodeKey, node]),
+      );
+      const baseEdges = new Map(
+        base.edges.map((edge) => [edge.edgeKey, edge]),
+      );
+      const targetEdges = new Map(
+        target.edges.map((edge) => [edge.edgeKey, edge]),
+      );
+
+      const addedNodes = [...targetNodes.keys()].filter(
+        (key) => !baseNodes.has(key),
+      );
+      const removedNodes = [...baseNodes.keys()].filter(
+        (key) => !targetNodes.has(key),
+      );
+      const changedNodes = [...targetNodes.keys()].filter((key) => {
+        const before = baseNodes.get(key);
+        const after = targetNodes.get(key);
+        if (!before || !after) return false;
+        return (
+          before.nodeType !== after.nodeType ||
+          before.name !== after.name ||
+          JSON.stringify(before.config) !== JSON.stringify(after.config)
+        );
+      });
+
+      const addedEdges = [...targetEdges.keys()].filter(
+        (key) => !baseEdges.has(key),
+      );
+      const removedEdges = [...baseEdges.keys()].filter(
+        (key) => !targetEdges.has(key),
+      );
+      const changedEdges = [...targetEdges.keys()].filter((key) => {
+        const before = baseEdges.get(key);
+        const after = targetEdges.get(key);
+        if (!before || !after) return false;
+        return (
+          before.sourceNodeKey !== after.sourceNodeKey ||
+          before.targetNodeKey !== after.targetNodeKey ||
+          before.branchKey !== after.branchKey ||
+          before.priority !== after.priority ||
+          JSON.stringify(before.config ?? {}) !==
+            JSON.stringify(after.config ?? {})
+        );
+      });
+
+      setVersionComparison({
+        baseVersion: previous.version,
+        targetVersion: selectedVersion.version,
+        addedNodes,
+        removedNodes,
+        changedNodes,
+        addedEdges,
+        removedEdges,
+        changedEdges,
+      });
+      setError('');
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to compare workflow versions.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function triggerManual(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedWorkflowId) return;
@@ -594,6 +740,131 @@ export default function AutomationsPage() {
       setBusy(false);
     }
   }
+
+  async function loadRunDetail(id: string) {
+    try {
+      const detail = await api<RunDetail>('runs/' + id);
+      setRunDetail(detail);
+      setError('');
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Unable to load run trace.',
+      );
+    }
+  }
+
+  async function runControl(
+    runId: string,
+    action:
+      | 'pause'
+      | 'resume-paused'
+      | 'cancel'
+      | 'reconcile-retry'
+      | 'reconcile-cancel',
+  ) {
+    setBusy(true);
+    try {
+      if (action === 'pause') {
+        await api('runs/' + runId + '/pause', {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'Paused from Automation Control Center.' }),
+        });
+      } else if (action === 'resume-paused') {
+        await api('runs/' + runId + '/resume-paused', {
+          method: 'POST',
+        });
+      } else if (action === 'cancel') {
+        await api('runs/' + runId + '/cancel', {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'Cancelled from Automation Control Center.' }),
+        });
+      } else if (action === 'reconcile-retry') {
+        await api('runs/' + runId + '/reconcile', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'RETRY',
+            reason:
+              'Operator confirmed the previous attempt produced no external side effect.',
+            confirmedNoSideEffect: true,
+          }),
+        });
+      } else {
+        await api('runs/' + runId + '/reconcile', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'CANCEL',
+            reason: 'Operator cancelled after reconciliation.',
+          }),
+        });
+      }
+
+      const [runRows, approvalRows, detail] = await Promise.all([
+        api<Run[]>('runs?limit=100'),
+        api<Approval[]>('approvals'),
+        api<RunDetail>('runs/' + runId),
+      ]);
+      setRuns(runRows);
+      setApprovals(approvalRows);
+      setRunDetail(detail);
+      setError('');
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Run control failed.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openRunOnCanvas(detail: RunDetail) {
+    setSelectedWorkflowId(detail.run.workflowId);
+    setSelectedVersionId(detail.run.workflowVersionId);
+    setTab('builder');
+  }
+
+  const tracedCompletedNodeKeys = useMemo(
+    () =>
+      new Set(
+        (runDetail?.steps ?? [])
+          .filter((step) => step.status === 'COMPLETED')
+          .map((step) => step.nodeKey),
+      ),
+    [runDetail],
+  );
+
+  const displayedNodes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const isCurrent =
+          runDetail?.run.workflowVersionId === selectedVersionId &&
+          runDetail?.run.currentNodeKey === node.id;
+        const isCompleted =
+          runDetail?.run.workflowVersionId === selectedVersionId &&
+          tracedCompletedNodeKeys.has(node.id);
+        return {
+          ...node,
+          style: isCurrent
+            ? {
+                border: '2px solid rgb(167 139 250)',
+                boxShadow: '0 0 0 5px rgb(167 139 250 / 0.12)',
+                background: 'rgb(24 24 27)',
+                color: 'white',
+              }
+            : isCompleted
+              ? {
+                  border: '1px solid rgb(52 211 153 / 0.75)',
+                  background: 'rgb(24 24 27)',
+                  color: 'white',
+                }
+              : {
+                  border: '1px solid rgb(255 255 255 / 0.12)',
+                  background: 'rgb(24 24 27)',
+                  color: 'white',
+                },
+        };
+      }),
+    [nodes, runDetail, selectedVersionId, tracedCompletedNodeKeys],
+  );
 
   const metrics = useMemo(
     () => ({
@@ -782,9 +1053,10 @@ export default function AutomationsPage() {
                   <div className="mt-3 flex gap-2">
                     <select
                       value={selectedVersionId ?? ''}
-                      onChange={(event) =>
-                        setSelectedVersionId(event.target.value)
-                      }
+                      onChange={(event) => {
+                        setSelectedVersionId(event.target.value);
+                        setVersionComparison(undefined);
+                      }}
                       className={field + ' min-w-0 flex-1'}
                     >
                       <option value="">Version</option>
@@ -794,6 +1066,13 @@ export default function AutomationsPage() {
                         </option>
                       ))}
                     </select>
+                    <button
+                      onClick={() => void comparePreviousVersion()}
+                      disabled={busy || !selectedVersion || selectedVersion.version <= 1}
+                      className="rounded-xl border border-white/10 px-3 text-xs text-zinc-300 disabled:opacity-40"
+                    >
+                      Compare
+                    </button>
                     <button
                       onClick={() => void createVersion()}
                       disabled={busy || !selectedWorkflowId}
@@ -813,6 +1092,78 @@ export default function AutomationsPage() {
                         {selectedVersion?.triggerType ?? '—'} · max{' '}
                         {selectedVersion?.maxSteps ?? '—'} steps
                       </div>
+                    </div>
+                  ) : null}
+
+                  {versionComparison ? (
+                    <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-400/[0.035] p-3 text-xs leading-5 text-zinc-500">
+                      <div className="font-medium text-violet-200">
+                        v{versionComparison.baseVersion} → v
+                        {versionComparison.targetVersion}
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span>
+                          Nodes +{versionComparison.addedNodes.length} / −
+                          {versionComparison.removedNodes.length}
+                        </span>
+                        <span>
+                          Changed {versionComparison.changedNodes.length}
+                        </span>
+                        <span>
+                          Edges +{versionComparison.addedEdges.length} / −
+                          {versionComparison.removedEdges.length}
+                        </span>
+                        <span>
+                          Changed {versionComparison.changedEdges.length}
+                        </span>
+                      </div>
+                      {[
+                        ...versionComparison.addedNodes.map(
+                          (item) => '+ node ' + item,
+                        ),
+                        ...versionComparison.removedNodes.map(
+                          (item) => '− node ' + item,
+                        ),
+                        ...versionComparison.changedNodes.map(
+                          (item) => 'Δ node ' + item,
+                        ),
+                        ...versionComparison.addedEdges.map(
+                          (item) => '+ edge ' + item,
+                        ),
+                        ...versionComparison.removedEdges.map(
+                          (item) => '− edge ' + item,
+                        ),
+                        ...versionComparison.changedEdges.map(
+                          (item) => 'Δ edge ' + item,
+                        ),
+                      ].length ? (
+                        <div className="mt-2 max-h-28 overflow-y-auto rounded-lg bg-black/20 p-2 font-mono text-[10px] text-zinc-500">
+                          {[
+                            ...versionComparison.addedNodes.map(
+                              (item) => '+ node ' + item,
+                            ),
+                            ...versionComparison.removedNodes.map(
+                              (item) => '− node ' + item,
+                            ),
+                            ...versionComparison.changedNodes.map(
+                              (item) => 'Δ node ' + item,
+                            ),
+                            ...versionComparison.addedEdges.map(
+                              (item) => '+ edge ' + item,
+                            ),
+                            ...versionComparison.removedEdges.map(
+                              (item) => '− edge ' + item,
+                            ),
+                            ...versionComparison.changedEdges.map(
+                              (item) => 'Δ edge ' + item,
+                            ),
+                          ].join('\n')}
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-emerald-300">
+                          No behavioral graph changes.
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -883,7 +1234,7 @@ export default function AutomationsPage() {
 
                 <div className="h-[720px]">
                   <ReactFlow
-                    nodes={nodes}
+                    nodes={displayedNodes}
                     edges={edges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
@@ -958,22 +1309,35 @@ export default function AutomationsPage() {
                         />
                         Start workflow here
                       </label>
-                      <textarea
-                        rows={14}
-                        value={configText}
-                        onChange={(event) =>
-                          setConfigText(event.target.value)
-                        }
+                      <TypedNodeInspector
+                        node={selectedNode}
                         disabled={selectedVersion?.status !== 'DRAFT'}
-                        className="rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs leading-5 text-zinc-300 outline-none focus:border-violet-400/50"
+                        onChange={updateSelectedNodeConfig}
                       />
-                      <button
-                        onClick={updateNodeConfig}
-                        disabled={selectedVersion?.status !== 'DRAFT'}
-                        className="h-10 rounded-xl border border-white/10 text-sm text-zinc-300 disabled:opacity-40"
-                      >
-                        Apply node config
-                      </button>
+
+                      <details className="rounded-xl border border-white/[0.07] bg-black/10">
+                        <summary className="cursor-pointer px-3 py-2 text-xs text-zinc-500">
+                          Advanced JSON
+                        </summary>
+                        <div className="grid gap-3 border-t border-white/[0.06] p-3">
+                          <textarea
+                            rows={12}
+                            value={configText}
+                            onChange={(event) =>
+                              setConfigText(event.target.value)
+                            }
+                            disabled={selectedVersion?.status !== 'DRAFT'}
+                            className="rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs leading-5 text-zinc-300 outline-none focus:border-violet-400/50"
+                          />
+                          <button
+                            onClick={updateNodeConfig}
+                            disabled={selectedVersion?.status !== 'DRAFT'}
+                            className="h-10 rounded-xl border border-white/10 text-sm text-zinc-300 disabled:opacity-40"
+                          >
+                            Apply advanced JSON
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ) : selectedEdge ? (
                     <div className="mt-4 grid gap-3">
@@ -1057,51 +1421,233 @@ export default function AutomationsPage() {
             </div>
           ) : null}
           {tab === 'runs' ? (
-            <section className="mt-6 rounded-2xl border border-white/10 bg-[#0d1017] p-5">
-              <h2 className="font-semibold">Automation runs</h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                Durable execution state across events, waits, approvals and
-                failures.
-              </p>
-              <div className="mt-5 overflow-x-auto">
-                <div className="min-w-[980px] overflow-hidden rounded-xl border border-white/[0.07]">
-                  <div className="grid grid-cols-[1.2fr_.8fr_.8fr_.6fr_1fr_1.5fr] gap-3 border-b border-white/[0.07] px-4 py-3 text-xs uppercase text-zinc-600">
-                    <span>Started</span>
-                    <span>Status</span>
-                    <span>Trigger</span>
-                    <span>Steps</span>
-                    <span>Current / wake</span>
-                    <span>Issue</span>
-                  </div>
-                  {runs.map((run) => (
-                    <div
-                      key={run.id}
-                      className="grid grid-cols-[1.2fr_.8fr_.8fr_.6fr_1fr_1.5fr] gap-3 border-b border-white/[0.05] px-4 py-3 text-xs last:border-0"
-                    >
-                      <span className="text-zinc-500">
-                        {new Date(run.startedAt).toLocaleString()}
-                      </span>
-                      <span className="text-zinc-300">{run.status}</span>
-                      <span className="text-zinc-500">
-                        {run.triggerEventType ?? run.triggerType}
-                      </span>
-                      <span className="text-zinc-500">
-                        {run.stepsExecuted}
-                      </span>
-                      <span className="text-zinc-500">
-                        {run.currentNodeKey ??
-                          (run.wakeAt
-                            ? new Date(run.wakeAt).toLocaleString()
-                            : '—')}
-                      </span>
-                      <span className="truncate text-zinc-600">
-                        {run.lastError ?? '—'}
-                      </span>
+            <div className="mt-6 grid gap-5 2xl:grid-cols-[1fr_430px]">
+              <section className="rounded-2xl border border-white/10 bg-[#0d1017] p-5">
+                <h2 className="font-semibold">Automation runs</h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Durable execution state across events, waits, approvals,
+                  retries and failures.
+                </p>
+                <div className="mt-5 overflow-x-auto">
+                  <div className="min-w-[1080px] overflow-hidden rounded-xl border border-white/[0.07]">
+                    <div className="grid grid-cols-[1.2fr_.8fr_.8fr_.6fr_1fr_1.3fr_.6fr] gap-3 border-b border-white/[0.07] px-4 py-3 text-xs uppercase text-zinc-600">
+                      <span>Started</span>
+                      <span>Status</span>
+                      <span>Trigger</span>
+                      <span>Steps</span>
+                      <span>Current / wake</span>
+                      <span>Issue</span>
+                      <span>Trace</span>
                     </div>
-                  ))}
+                    {runs.map((run) => (
+                      <div
+                        key={run.id}
+                        className={
+                          'grid grid-cols-[1.2fr_.8fr_.8fr_.6fr_1fr_1.3fr_.6fr] gap-3 border-b border-white/[0.05] px-4 py-3 text-xs last:border-0 ' +
+                          (runDetail?.run.id === run.id
+                            ? 'bg-violet-400/[0.05]'
+                            : '')
+                        }
+                      >
+                        <span className="text-zinc-500">
+                          {new Date(run.startedAt).toLocaleString()}
+                        </span>
+                        <span className="text-zinc-300">{run.status}</span>
+                        <span className="text-zinc-500">
+                          {run.triggerEventType ?? run.triggerType}
+                        </span>
+                        <span className="text-zinc-500">
+                          {run.stepsExecuted}
+                        </span>
+                        <span className="text-zinc-500">
+                          {run.currentNodeKey ??
+                            (run.wakeAt
+                              ? new Date(run.wakeAt).toLocaleString()
+                              : '—')}
+                        </span>
+                        <span className="truncate text-zinc-600">
+                          {run.lastError ?? '—'}
+                        </span>
+                        <button
+                          onClick={() => void loadRunDetail(run.id)}
+                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
+                        >
+                          Inspect
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
+
+              <section className="h-fit rounded-2xl border border-white/10 bg-[#0d1017] p-5 2xl:sticky 2xl:top-6">
+                <h2 className="font-semibold">Live trace</h2>
+                {!runDetail ? (
+                  <div className="mt-8 text-sm leading-6 text-zinc-600">
+                    Select a run to inspect its exact node-by-node execution
+                    history.
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-xl border border-white/[0.07] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium">
+                          {runDetail.run.status}
+                        </span>
+                        <span className="text-[11px] text-zinc-600">
+                          {runDetail.run.stepsExecuted} steps
+                        </span>
+                      </div>
+                      <div className="mt-2 text-xs leading-5 text-zinc-500">
+                        Current: {runDetail.run.currentNodeKey ?? '—'}
+                        {runDetail.run.wakeAt
+                          ? ' · wake ' +
+                            new Date(runDetail.run.wakeAt).toLocaleString()
+                          : ''}
+                      </div>
+                      {runDetail.run.lastError ? (
+                        <div className="mt-3 rounded-lg bg-red-400/[0.06] p-2 text-xs leading-5 text-red-300">
+                          {runDetail.run.lastError}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => openRunOnCanvas(runDetail)}
+                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300"
+                        >
+                          Show on canvas
+                        </button>
+                        {['RUNNING', 'WAITING'].includes(
+                          runDetail.run.status,
+                        ) ? (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              void runControl(
+                                runDetail.run.id,
+                                'pause',
+                              )
+                            }
+                            className="rounded-lg border border-amber-400/20 px-3 py-1.5 text-xs text-amber-300"
+                          >
+                            Pause
+                          </button>
+                        ) : null}
+                        {runDetail.run.status === 'PAUSED' ? (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              void runControl(
+                                runDetail.run.id,
+                                'resume-paused',
+                              )
+                            }
+                            className="rounded-lg bg-violet-400 px-3 py-1.5 text-xs font-semibold text-zinc-950"
+                          >
+                            Resume
+                          </button>
+                        ) : null}
+                        {runDetail.run.status === 'ACTION_REQUIRED' ? (
+                          <>
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                void runControl(
+                                  runDetail.run.id,
+                                  'reconcile-retry',
+                                )
+                              }
+                              className="rounded-lg bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-zinc-950"
+                            >
+                              Confirm & retry
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                void runControl(
+                                  runDetail.run.id,
+                                  'reconcile-cancel',
+                                )
+                              }
+                              className="rounded-lg border border-red-400/20 px-3 py-1.5 text-xs text-red-300"
+                            >
+                              Cancel after review
+                            </button>
+                          </>
+                        ) : null}
+                        {!['COMPLETED', 'FAILED', 'CANCELLED'].includes(
+                          runDetail.run.status,
+                        ) &&
+                        runDetail.run.status !== 'ACTION_REQUIRED' ? (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              void runControl(
+                                runDetail.run.id,
+                                'cancel',
+                              )
+                            }
+                            className="rounded-lg border border-red-400/20 px-3 py-1.5 text-xs text-red-300"
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
+                      {runDetail.steps.map((step) => (
+                        <details
+                          key={step.id}
+                          className="rounded-xl border border-white/[0.07] bg-black/10"
+                        >
+                          <summary className="cursor-pointer px-3 py-3 text-xs">
+                            <div className="inline-flex w-[calc(100%-12px)] items-center justify-between gap-3">
+                              <span>
+                                {step.nodeKey} · {step.nodeType}
+                              </span>
+                              <span className="text-zinc-500">
+                                {step.status} · #{step.attempt}
+                              </span>
+                            </div>
+                          </summary>
+                          <div className="grid gap-2 border-t border-white/[0.06] p-3 text-[11px] leading-5 text-zinc-500">
+                            {step.errorMessage ? (
+                              <div className="text-red-300">
+                                {step.errorMessage}
+                              </div>
+                            ) : null}
+                            <div>
+                              Started:{' '}
+                              {new Date(step.startedAt).toLocaleString()}
+                            </div>
+                            {step.completedAt ? (
+                              <div>
+                                Completed:{' '}
+                                {new Date(
+                                  step.completedAt,
+                                ).toLocaleString()}
+                              </div>
+                            ) : null}
+                            <pre className="overflow-x-auto rounded-lg bg-black/30 p-2 text-[10px] text-zinc-400">
+                              {JSON.stringify(
+                                {
+                                  input: step.input,
+                                  output: step.output,
+                                },
+                                null,
+                                2,
+                              )}
+                            </pre>
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
           ) : null}
 
           {tab === 'approvals' ? (
@@ -1200,4 +1746,602 @@ function nodeHint(type: GraphNode['nodeType']) {
   if (type === 'WAIT') return 'Durable timed pause';
   if (type === 'APPROVAL') return 'Human decision gate';
   return 'Finish the run';
+}
+
+function TypedNodeInspector({
+  node,
+  disabled,
+  onChange,
+}: {
+  node: Node<CanvasData>;
+  disabled: boolean;
+  onChange: (config: Record<string, unknown>) => void;
+}) {
+  const config = node.data.config ?? {};
+  const update = (patch: Record<string, unknown>) =>
+    onChange({ ...config, ...patch });
+
+  if (node.data.nodeType === 'ACTION') {
+    const action =
+      typeof config.action === 'string'
+        ? config.action
+        : 'CRM_CREATE_TASK';
+    const input =
+      config.input &&
+      typeof config.input === 'object' &&
+      !Array.isArray(config.input)
+        ? (config.input as Record<string, unknown>)
+        : {};
+    const retry =
+      config.retry &&
+      typeof config.retry === 'object' &&
+      !Array.isArray(config.retry)
+        ? (config.retry as Record<string, unknown>)
+        : undefined;
+    const retrySafe = [
+      'CRM_UPDATE_LEAD',
+      'WHATSAPP_SEND_TEXT',
+      'WHATSAPP_SEND_TEMPLATE',
+      'SET_CONVERSATION_MODE',
+    ].includes(action);
+
+    const updateInput = (key: string, value: unknown) =>
+      update({ input: { ...input, [key]: value } });
+
+    return (
+      <div className="grid gap-3 rounded-xl border border-violet-400/10 bg-violet-400/[0.035] p-3">
+        <label className="grid gap-1.5 text-xs text-zinc-500">
+          Action
+          <select
+            className={field}
+            value={action}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({
+                action: event.target.value,
+                input: defaultActionInput(event.target.value),
+              })
+            }
+          >
+            <option value="CRM_CREATE_TASK">Create CRM task</option>
+            <option value="CRM_UPDATE_LEAD">Update CRM lead</option>
+            <option value="WHATSAPP_SEND_TEXT">Send WhatsApp text</option>
+            <option value="WHATSAPP_SEND_TEMPLATE">
+              Send WhatsApp template
+            </option>
+            <option value="AI_RUN_AGENT">Run AI agent</option>
+            <option value="SET_CONVERSATION_MODE">
+              Set conversation mode
+            </option>
+          </select>
+        </label>
+
+        {action === 'CRM_CREATE_TASK' ? (
+          <>
+            <TypedText
+              label="Task title"
+              value={input.title}
+              disabled={disabled}
+              onChange={(value) => updateInput('title', value)}
+              placeholder="Follow up {{event.payload.name}}"
+            />
+            <TypedText
+              label="Description"
+              value={input.description}
+              disabled={disabled}
+              onChange={(value) => updateInput('description', value)}
+              placeholder="Optional task description"
+            />
+            <TypedText
+              label="Contact ID / template"
+              value={input.contactId}
+              disabled={disabled}
+              onChange={(value) => updateInput('contactId', value)}
+              placeholder="{{event.payload.contactId}}"
+            />
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Priority
+              <select
+                className={field}
+                disabled={disabled}
+                value={
+                  typeof input.priority === 'string'
+                    ? input.priority
+                    : 'NORMAL'
+                }
+                onChange={(event) =>
+                  updateInput('priority', event.target.value)
+                }
+              >
+                <option value="LOW">Low</option>
+                <option value="NORMAL">Normal</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+            </label>
+          </>
+        ) : null}
+
+        {action === 'CRM_UPDATE_LEAD' ? (
+          <>
+            <TypedText
+              label="Lead ID / template"
+              value={input.leadId}
+              disabled={disabled}
+              onChange={(value) => updateInput('leadId', value)}
+              placeholder="{{event.aggregateId}}"
+            />
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Status
+              <select
+                className={field}
+                disabled={disabled}
+                value={
+                  typeof input.status === 'string' ? input.status : 'OPEN'
+                }
+                onChange={(event) =>
+                  updateInput('status', event.target.value)
+                }
+              >
+                <option value="OPEN">Open</option>
+                <option value="QUALIFIED">Qualified</option>
+                <option value="UNQUALIFIED">Unqualified</option>
+                <option value="LOST">Lost</option>
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Temperature
+              <select
+                className={field}
+                disabled={disabled}
+                value={
+                  typeof input.temperature === 'string'
+                    ? input.temperature
+                    : 'COLD'
+                }
+                onChange={(event) =>
+                  updateInput('temperature', event.target.value)
+                }
+              >
+                <option value="COLD">Cold</option>
+                <option value="WARM">Warm</option>
+                <option value="HOT">Hot</option>
+                <option value="LOST">Lost</option>
+              </select>
+            </label>
+            <TypedText
+              label="Score"
+              value={input.score}
+              disabled={disabled}
+              onChange={(value) =>
+                updateInput(
+                  'score',
+                  value === '' ? undefined : Number(value),
+                )
+              }
+              placeholder="0-100"
+            />
+          </>
+        ) : null}
+
+        {action === 'WHATSAPP_SEND_TEXT' ? (
+          <>
+            <TypedText
+              label="Conversation ID / template"
+              value={input.conversationId}
+              disabled={disabled}
+              onChange={(value) =>
+                updateInput('conversationId', value)
+              }
+              placeholder="{{event.payload.conversationId}}"
+            />
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Message
+              <textarea
+                rows={5}
+                disabled={disabled}
+                value={typeof input.text === 'string' ? input.text : ''}
+                onChange={(event) =>
+                  updateInput('text', event.target.value)
+                }
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-violet-400/50"
+                placeholder="Hi {{event.payload.name}}, ..."
+              />
+            </label>
+          </>
+        ) : null}
+
+        {action === 'WHATSAPP_SEND_TEMPLATE' ? (
+          <>
+            <TypedText
+              label="Conversation ID / template"
+              value={input.conversationId}
+              disabled={disabled}
+              onChange={(value) =>
+                updateInput('conversationId', value)
+              }
+              placeholder="{{event.payload.conversationId}}"
+            />
+            <TypedText
+              label="Template ID / template"
+              value={input.templateId}
+              disabled={disabled}
+              onChange={(value) => updateInput('templateId', value)}
+              placeholder="{{event.payload.templateId}}"
+            />
+          </>
+        ) : null}
+
+        {action === 'AI_RUN_AGENT' ? (
+          <>
+            <TypedText
+              label="Agent ID"
+              value={input.agentId}
+              disabled={disabled}
+              onChange={(value) => updateInput('agentId', value)}
+              placeholder="AI agent UUID"
+            />
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Prompt
+              <textarea
+                rows={5}
+                disabled={disabled}
+                value={
+                  typeof input.input === 'string' ? input.input : ''
+                }
+                onChange={(event) =>
+                  updateInput('input', event.target.value)
+                }
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-violet-400/50"
+                placeholder="Qualify this lead using {{event.payload...}}"
+              />
+            </label>
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Model routing
+              <select
+                className={field}
+                disabled={disabled}
+                value={
+                  typeof input.routing === 'string'
+                    ? input.routing
+                    : 'AGENT_DEFAULT'
+                }
+                onChange={(event) =>
+                  updateInput('routing', event.target.value)
+                }
+              >
+                <option value="AGENT_DEFAULT">Agent default</option>
+                <option value="FAST">Fast</option>
+                <option value="REASONING">Reasoning</option>
+              </select>
+            </label>
+          </>
+        ) : null}
+
+        {action === 'SET_CONVERSATION_MODE' ? (
+          <>
+            <TypedText
+              label="Conversation ID / template"
+              value={input.conversationId}
+              disabled={disabled}
+              onChange={(value) =>
+                updateInput('conversationId', value)
+              }
+              placeholder="{{event.payload.conversationId}}"
+            />
+            <label className="grid gap-1.5 text-xs text-zinc-500">
+              Handling mode
+              <select
+                className={field}
+                disabled={disabled}
+                value={
+                  typeof input.handlingMode === 'string'
+                    ? input.handlingMode
+                    : 'HUMAN'
+                }
+                onChange={(event) =>
+                  updateInput('handlingMode', event.target.value)
+                }
+              >
+                <option value="HUMAN">Human</option>
+                <option value="AI_ASSIST">AI Assist</option>
+                <option value="AI">AI autonomous</option>
+              </select>
+            </label>
+          </>
+        ) : null}
+
+        <label className="flex items-start gap-3 rounded-xl border border-white/[0.07] p-3 text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            disabled={disabled || !retrySafe}
+            checked={Boolean(retry)}
+            onChange={(event) => {
+              if (event.target.checked) {
+                update({
+                  retry: {
+                    maxAttempts: 3,
+                    backoffSeconds: 5,
+                    multiplier: 2,
+                    maxBackoffSeconds: 300,
+                  },
+                });
+              } else {
+                const next = { ...config };
+                delete next.retry;
+                onChange(next);
+              }
+            }}
+          />
+          <span>
+            Safe automatic retry
+            <span className="mt-1 block text-[11px] leading-4 text-zinc-600">
+              Enabled only for actions with idempotent or state-setting
+              semantics. Ambiguous AI/external effects require operator
+              reconciliation.
+            </span>
+          </span>
+        </label>
+
+        {retry ? (
+          <div className="grid grid-cols-2 gap-2">
+            <TypedNumber
+              label="Max attempts"
+              value={retry.maxAttempts}
+              disabled={disabled}
+              min={2}
+              max={10}
+              onChange={(value) =>
+                update({
+                  retry: { ...retry, maxAttempts: value },
+                })
+              }
+            />
+            <TypedNumber
+              label="Backoff seconds"
+              value={retry.backoffSeconds}
+              disabled={disabled}
+              min={1}
+              max={3600}
+              onChange={(value) =>
+                update({
+                  retry: { ...retry, backoffSeconds: value },
+                })
+              }
+            />
+            <TypedNumber
+              label="Multiplier"
+              value={retry.multiplier}
+              disabled={disabled}
+              min={1}
+              max={10}
+              onChange={(value) =>
+                update({
+                  retry: { ...retry, multiplier: value },
+                })
+              }
+            />
+            <TypedNumber
+              label="Max backoff"
+              value={retry.maxBackoffSeconds}
+              disabled={disabled}
+              min={1}
+              max={86400}
+              onChange={(value) =>
+                update({
+                  retry: { ...retry, maxBackoffSeconds: value },
+                })
+              }
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (node.data.nodeType === 'CONDITION') {
+    return (
+      <div className="grid gap-3 rounded-xl border border-sky-400/10 bg-sky-400/[0.035] p-3">
+        <TypedText
+          label="Context path"
+          value={config.path}
+          disabled={disabled}
+          onChange={(value) => update({ path: value })}
+          placeholder="event.payload.score"
+        />
+        <label className="grid gap-1.5 text-xs text-zinc-500">
+          Operator
+          <select
+            className={field}
+            disabled={disabled}
+            value={
+              typeof config.operator === 'string'
+                ? config.operator
+                : 'EQUALS'
+            }
+            onChange={(event) =>
+              update({ operator: event.target.value })
+            }
+          >
+            <option value="EQUALS">Equals</option>
+            <option value="NOT_EQUALS">Not equals</option>
+            <option value="EXISTS">Exists</option>
+            <option value="IN">In list</option>
+            <option value="GT">Greater than</option>
+            <option value="GTE">Greater than/equal</option>
+            <option value="LT">Less than</option>
+            <option value="LTE">Less than/equal</option>
+          </select>
+        </label>
+        {config.operator !== 'EXISTS' ? (
+          <TypedText
+            label="Comparison value"
+            value={config.value}
+            disabled={disabled}
+            onChange={(value) => update({ value })}
+            placeholder="QUALIFIED"
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (node.data.nodeType === 'WAIT') {
+    return (
+      <div className="grid gap-3 rounded-xl border border-amber-400/10 bg-amber-400/[0.035] p-3">
+        <TypedNumber
+          label="Wait seconds"
+          value={config.durationSeconds}
+          disabled={disabled}
+          min={1}
+          max={2592000}
+          onChange={(value) => update({ durationSeconds: value })}
+        />
+        <div className="text-[11px] leading-5 text-zinc-600">
+          Durable wait. The scheduler resumes this run even after a server
+          restart.
+        </div>
+      </div>
+    );
+  }
+
+  if (node.data.nodeType === 'APPROVAL') {
+    return (
+      <div className="grid gap-3 rounded-xl border border-fuchsia-400/10 bg-fuchsia-400/[0.035] p-3">
+        <TypedText
+          label="Approval title"
+          value={config.title}
+          disabled={disabled}
+          onChange={(value) => update({ title: value })}
+          placeholder="Approve this action"
+        />
+        <label className="grid gap-1.5 text-xs text-zinc-500">
+          Description
+          <textarea
+            rows={4}
+            disabled={disabled}
+            value={
+              typeof config.description === 'string'
+                ? config.description
+                : ''
+            }
+            onChange={(event) =>
+              update({ description: event.target.value })
+            }
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-violet-400/50"
+          />
+        </label>
+        <TypedNumber
+          label="Expiry seconds"
+          value={config.expirySeconds}
+          disabled={disabled}
+          min={60}
+          max={604800}
+          onChange={(value) => update({ expirySeconds: value })}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-400/10 bg-emerald-400/[0.035] p-3 text-xs leading-5 text-zinc-500">
+      END closes the run successfully and cannot have outgoing edges.
+    </div>
+  );
+}
+
+function TypedText({
+  label,
+  value,
+  disabled,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: unknown;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-xs text-zinc-500">
+      {label}
+      <input
+        className={field}
+        disabled={disabled}
+        value={
+          typeof value === 'string' || typeof value === 'number'
+            ? String(value)
+            : ''
+        }
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function TypedNumber({
+  label,
+  value,
+  disabled,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: unknown;
+  disabled: boolean;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="grid gap-1.5 text-xs text-zinc-500">
+      {label}
+      <input
+        className={field}
+        type="number"
+        min={min}
+        max={max}
+        disabled={disabled}
+        value={Number.isFinite(Number(value)) ? Number(value) : min}
+        onChange={(event) =>
+          onChange(Number.parseInt(event.target.value || String(min), 10))
+        }
+      />
+    </label>
+  );
+}
+
+function defaultActionInput(action: string) {
+  if (action === 'CRM_CREATE_TASK') {
+    return { title: 'Automation follow-up task', priority: 'NORMAL' };
+  }
+  if (action === 'CRM_UPDATE_LEAD') {
+    return { leadId: '{{event.aggregateId}}', status: 'OPEN' };
+  }
+  if (action === 'WHATSAPP_SEND_TEXT') {
+    return {
+      conversationId: '{{event.payload.conversationId}}',
+      text: 'Hello {{event.payload.name}}',
+    };
+  }
+  if (action === 'WHATSAPP_SEND_TEMPLATE') {
+    return {
+      conversationId: '{{event.payload.conversationId}}',
+      templateId: '{{event.payload.templateId}}',
+    };
+  }
+  if (action === 'AI_RUN_AGENT') {
+    return { agentId: '', input: '', routing: 'AGENT_DEFAULT' };
+  }
+  if (action === 'SET_CONVERSATION_MODE') {
+    return {
+      conversationId: '{{event.payload.conversationId}}',
+      handlingMode: 'HUMAN',
+    };
+  }
+  return {};
 }

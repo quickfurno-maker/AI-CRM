@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsObject,
@@ -79,4 +80,18 @@ export class ProcessAutomationEventDto {
 export class DecideAutomationApprovalDto {
   @IsIn(['APPROVED', 'REJECTED']) status: string;
   @IsOptional() @IsString() @MaxLength(4000) reason?: string;
+}
+
+export class PauseAutomationRunDto {
+  @IsOptional() @IsString() @MaxLength(4000) reason?: string;
+}
+
+export class CancelAutomationRunDto {
+  @IsOptional() @IsString() @MaxLength(4000) reason?: string;
+}
+
+export class ReconcileAutomationRunDto {
+  @IsIn(['RETRY', 'CANCEL']) action: string;
+  @IsString() @MinLength(3) @MaxLength(4000) reason: string;
+  @IsOptional() @IsBoolean() confirmedNoSideEffect?: boolean;
 }

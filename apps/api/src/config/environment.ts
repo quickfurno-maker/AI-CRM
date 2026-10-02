@@ -1,5 +1,20 @@
 import { z } from 'zod';
 
+function envBoolean(defaultValue = false) {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    return value;
+  }, z.boolean());
+}
+
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -7,8 +22,8 @@ const schema = z
     DATABASE_URL: z
       .string()
       .url()
-      .default('postgresql://crm_ai:crm_ai_dev@localhost:55432/crm_ai'),
-    REDIS_URL: z.string().url().default('redis://localhost:56379'),
+      .default('postgresql://crm_ai:crm_ai_dev@localhost:15432/crm_ai'),
+    REDIS_URL: z.string().url().default('redis://localhost:16379'),
     JWT_ACCESS_SECRET: z
       .string()
       .min(32)
@@ -30,11 +45,11 @@ const schema = z
     AI_OPENAI_REASONING_MODEL: z.string().default('gpt-6.1-sol'),
     AI_OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
     EVENT_STREAM: z.string().default('crm-ai:events'),
-    AI_WHATSAPP_EVENT_CONSUMER_ENABLED: z.coerce.boolean().default(false),
+    AI_WHATSAPP_EVENT_CONSUMER_ENABLED: envBoolean(false),
     AI_WHATSAPP_CONSUMER_GROUP: z.string().default('crm-ai:ai-whatsapp'),
-    AUTOMATION_EVENT_CONSUMER_ENABLED: z.coerce.boolean().default(false),
+    AUTOMATION_EVENT_CONSUMER_ENABLED: envBoolean(false),
     AUTOMATION_CONSUMER_GROUP: z.string().default('crm-ai:automation'),
-    AUTOMATION_SCHEDULER_ENABLED: z.coerce.boolean().default(false),
+    AUTOMATION_SCHEDULER_ENABLED: envBoolean(false),
     AUTOMATION_SCHEDULER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1000),
   })
   .superRefine((env, ctx) => {

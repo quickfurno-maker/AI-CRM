@@ -49,8 +49,9 @@ export class AutomationSchedulerService
     while (this.running) {
       try {
         await this.expireApprovals();
-        await this.markStaleRuns();
-        const runIds = await this.claimDueRuns();
+        const recoveredRunIds = await this.reconcileStaleRuns();
+        const dueRunIds = await this.claimDueRuns();
+        const runIds = [...new Set([...recoveredRunIds, ...dueRunIds])];
         for (const runId of runIds) {
           try {
             await this.runtime.resumeWaitingRun(runId);
@@ -132,17 +133,76 @@ export class AutomationSchedulerService
     }
   }
 
-  private async markStaleRuns() {
-    await this.database.pool.query(
-      `update automation_runs
-       set status = 'ACTION_REQUIRED',
-           last_error = coalesce(
-             last_error,
-             'Automation run was left RUNNING for more than five minutes and requires reconciliation.'
-           ),
-           updated_at = now()
-       where status = 'RUNNING'
-         and updated_at < now() - interval '5 minutes'`,
-    );
+  private async reconcileStaleRuns() {
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('begin');
+
+      const stale = await client.query<{
+        id: string;
+        node_type: string | null;
+      }>(
+        `select run.id, node.node_type
+         from automation_runs run
+         left join automation_nodes node
+           on node.workflow_version_id = run.workflow_version_id
+          and node.node_key = run.current_node_key
+         where run.status = 'RUNNING'
+           and run.updated_at < now() - interval '5 minutes'
+         for update of run skip locked`,
+      );
+
+      const recoverable = stale.rows
+        .filter((row) => row.node_type && row.node_type !== 'ACTION')
+        .map((row) => row.id);
+      const ambiguous = stale.rows
+        .filter((row) => !row.node_type || row.node_type === 'ACTION')
+        .map((row) => row.id);
+
+      if (recoverable.length) {
+        await client.query(
+          `update automation_step_runs
+           set status = 'RECOVERED_INTERRUPTED',
+               error_message = coalesce(
+                 error_message,
+                 'Worker restarted while this deterministic step was running; step will be replayed safely.'
+               ),
+               completed_at = now()
+           where run_id = any($1::uuid[])
+             and status = 'RUNNING'`,
+          [recoverable],
+        );
+
+        await client.query(
+          `update automation_runs
+           set last_error = null,
+               updated_at = now()
+           where id = any($1::uuid[])`,
+          [recoverable],
+        );
+      }
+
+      if (ambiguous.length) {
+        await client.query(
+          `update automation_runs
+           set status = 'ACTION_REQUIRED',
+               last_error = coalesce(
+                 last_error,
+                 'Worker restarted while an external action may have been executing; reconcile before retrying.'
+               ),
+               updated_at = now()
+           where id = any($1::uuid[])`,
+          [ambiguous],
+        );
+      }
+
+      await client.query('commit');
+      return recoverable;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
