@@ -20,6 +20,7 @@ import {
   organizations,
   workspaces,
 } from '../../platform/database/schema.js';
+import { staffProfiles } from '../../modules/staff/staff.schema.js';
 
 const createdAt = () =>
   timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
@@ -83,6 +84,9 @@ export const attendanceEmployees = pgTable(
       () => attendanceDepartments.id,
       { onDelete: 'set null' },
     ),
+    staffProfileId: uuid('staff_profile_id').references(() => staffProfiles.id, {
+      onDelete: 'set null',
+    }),
     organizationMemberId: uuid('organization_member_id').references(
       () => organizationMembers.id,
       { onDelete: 'set null' },
@@ -114,6 +118,9 @@ export const attendanceEmployees = pgTable(
     uniqueIndex('attendance_employees_org_member_uq').on(
       table.organizationId,
       table.organizationMemberId,
+    ),
+    uniqueIndex('attendance_employees_staff_profile_uq').on(
+      table.staffProfileId,
     ),
     index('attendance_employees_org_branch_status_idx').on(
       table.organizationId,
