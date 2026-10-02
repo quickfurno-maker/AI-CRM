@@ -24,6 +24,11 @@ const schema = z
     META_SYSTEM_USER_ACCESS_TOKEN: z.string().optional(),
     META_APP_SECRET: z.string().optional(),
     META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+    AI_TRANSPORT_MODE: z.enum(['disabled', 'mock', 'live']).default('disabled'),
+    OPENAI_API_KEY: z.string().optional(),
+    AI_OPENAI_FAST_MODEL: z.string().default('gpt-6-luna'),
+    AI_OPENAI_REASONING_MODEL: z.string().default('gpt-6.1-sol'),
+    AI_OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
   })
   .superRefine((env, ctx) => {
     if (
@@ -64,6 +69,20 @@ const schema = z
           });
         }
       }
+    }
+    if (env.NODE_ENV === 'production' && env.AI_TRANSPORT_MODE === 'mock') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AI_TRANSPORT_MODE'],
+        message: 'Mock AI transport is not allowed in production.',
+      });
+    }
+    if (env.AI_TRANSPORT_MODE === 'live' && !env.OPENAI_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OPENAI_API_KEY'],
+        message: 'OPENAI_API_KEY is required for live AI transport.',
+      });
     }
   });
 

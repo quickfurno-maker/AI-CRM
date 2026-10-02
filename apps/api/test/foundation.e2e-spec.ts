@@ -61,7 +61,16 @@ describe('Phase 1 SaaS foundation', () => {
     process.env.META_EMBEDDED_SIGNUP_CONFIG_ID = 'test-config';
     process.env.META_APP_SECRET = 'test-meta-app-secret';
     process.env.META_WEBHOOK_VERIFY_TOKEN = 'test-webhook-token';
+    process.env.AI_TRANSPORT_MODE = 'mock';
+    process.env.AI_OPENAI_FAST_MODEL = 'gpt-6-luna';
+    process.env.AI_OPENAI_REASONING_MODEL = 'gpt-6.1-sol';
+    process.env.AI_OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    memory.public.registerEquivalentSizableType({
+      name: 'vector',
+      equivalentTo: DataType.text,
+      isValid: () => true,
+    });
     memory.public.registerFunction({
       name: 'gen_random_uuid',
       returns: DataType.uuid,
@@ -80,7 +89,9 @@ describe('Phase 1 SaaS foundation', () => {
     for (const migrationName of migrationNames) {
       const migration = readFileSync(resolve(migrationDirectory, migrationName), 'utf8');
       for (const statement of migration.split('--> statement-breakpoint')) {
-        if (statement.trim()) await pool.query(statement);
+        const sql = statement.trim();
+        if (!sql || sql.toUpperCase().startsWith('CREATE EXTENSION')) continue;
+        await pool.query(sql);
       }
     }
 
@@ -126,6 +137,10 @@ describe('Phase 1 SaaS foundation', () => {
       META_EMBEDDED_SIGNUP_CONFIG_ID: 'test-config',
       META_APP_SECRET: 'test-meta-app-secret',
       META_WEBHOOK_VERIFY_TOKEN: 'test-webhook-token',
+      AI_TRANSPORT_MODE: 'mock',
+      AI_OPENAI_FAST_MODEL: 'gpt-6-luna',
+      AI_OPENAI_REASONING_MODEL: 'gpt-6.1-sol',
+      AI_OPENAI_EMBEDDING_MODEL: 'text-embedding-3-small',
     };
     const configService = {
       get: (key: string) => testConfig[key],
@@ -743,5 +758,234 @@ describe('Phase 1 SaaS foundation', () => {
         (item: { id: string }) => item.id === outbound.body.id,
       )?.status,
     ).toBe('READ');
+  });
+
+  it('governs tenant AI agents, knowledge and tool approvals safely', async () => {
+    const tenantE = await register({
+      email: 'ai-e@example.com',
+      organizationName: 'AI Tenant E',
+      organizationSlug: 'ai-tenant-e',
+    });
+    const tenantF = await register({
+      email: 'ai-f@example.com',
+      organizationName: 'AI Tenant F',
+      organizationSlug: 'ai-tenant-f',
+    });
+    const authE = {
+      authorization: `Bearer ${tenantE.tokens.accessToken}`,
+    };
+    const authF = {
+      authorization: `Bearer ${tenantF.tokens.accessToken}`,
+    };
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(authE)
+      .send({
+        displayName: 'AI Test Client',
+        phone: '919822222222',
+        source: 'WHATSAPP',
+      })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/v1/ai/agents')
+      .set(authE)
+      .send({
+        key: 'whatsapp-client-handler',
+        name: 'WhatsApp Client Handler',
+        role: 'SALES_ASSISTANT',
+        defaultHandlingMode: 'AI_ASSIST',
+        instructions:
+          'Help the business handle client enquiries. Use only approved tools and tenant knowledge. Escalate whenever authority is insufficient.',
+      })
+      .expect(201);
+
+    const agentId = created.body.agent.id as string;
+    const versionId = created.body.version.id as string;
+
+    for (const policy of [
+      { toolKey: 'get_contact', mode: 'AUTO' },
+      { toolKey: 'search_knowledge', mode: 'AUTO' },
+      { toolKey: 'create_task', mode: 'APPROVAL' },
+    ]) {
+      await request(app.getHttpServer())
+        .put(`/v1/ai/agents/${agentId}/versions/${versionId}/tools`)
+        .set(authE)
+        .send(policy)
+        .expect(200);
+    }
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/agents/${agentId}/versions/${versionId}/activate`,
+      )
+      .set(authE)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/v1/ai/agents/${agentId}/run`)
+      .set(authF)
+      .send({ input: 'Try to access another tenant agent.' })
+      .expect(404);
+
+    const knowledgeBase = await request(app.getHttpServer())
+      .post('/v1/ai/knowledge-bases')
+      .set(authE)
+      .send({
+        key: 'business-faq',
+        name: 'Business FAQ',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/knowledge-bases/${knowledgeBase.body.id as string}/documents/text`,
+      )
+      .set(authE)
+      .send({
+        title: 'Service policy',
+        content:
+          'Our premium service includes a ten year warranty and priority support. Standard installation is scheduled after site confirmation.',
+      })
+      .expect(201);
+
+    const search = await request(app.getHttpServer())
+      .post(
+        `/v1/ai/knowledge-bases/${knowledgeBase.body.id as string}/search`,
+      )
+      .set(authE)
+      .send({ query: 'What warranty is included?', limit: 3 })
+      .expect(201);
+    expect(search.body.length).toBeGreaterThan(0);
+    expect(search.body[0].content).toContain('ten year warranty');
+
+    const run = await request(app.getHttpServer())
+      .post(`/v1/ai/agents/${agentId}/run`)
+      .set(authE)
+      .send({
+        contactId: contact.body.id,
+        input: 'Summarize this client enquiry.',
+        routing: 'FAST',
+      })
+      .expect(201);
+    expect(run.body.status).toBe('COMPLETED');
+    expect(run.body.model).toBe('gpt-6-luna');
+    expect(run.body.totalTokens).toBeGreaterThan(0);
+
+    const readTool = await request(app.getHttpServer())
+      .post(
+        `/v1/ai/runs/${run.body.id as string}/tools/get_contact/simulate`,
+      )
+      .set(authE)
+      .send({ arguments: { contactId: contact.body.id } })
+      .expect(201);
+    expect(readTool.body.status).toBe('COMPLETED');
+    expect(readTool.body.result.id).toBe(contact.body.id);
+
+    const approvalRequest = await request(app.getHttpServer())
+      .post(
+        `/v1/ai/runs/${run.body.id as string}/tools/create_task/simulate`,
+      )
+      .set(authE)
+      .send({
+        arguments: {
+          title: 'Human approved AI follow-up',
+          contactId: contact.body.id,
+          priority: 'HIGH',
+        },
+      })
+      .expect(201);
+    expect(approvalRequest.body.status).toBe('APPROVAL_REQUIRED');
+
+    const approvals = await request(app.getHttpServer())
+      .get('/v1/ai/approvals')
+      .set(authE)
+      .expect(200);
+    const approval = approvals.body.find(
+      (item: { approval: { id: string } }) =>
+        item.approval.id === approvalRequest.body.approvalId,
+    );
+    expect(approval).toBeTruthy();
+
+    const approved = await request(app.getHttpServer())
+      .post(
+        `/v1/ai/approvals/${approvalRequest.body.approvalId as string}/decision`,
+      )
+      .set(authE)
+      .send({
+        status: 'APPROVED',
+        reason: 'Approved for this client follow-up.',
+      })
+      .expect(201);
+    expect(approved.body.status).toBe('COMPLETED');
+
+    const tasks = await request(app.getHttpServer())
+      .get('/v1/crm/tasks?limit=100')
+      .set(authE)
+      .expect(200);
+    expect(
+      tasks.body.some(
+        (item: { title: string }) =>
+          item.title === 'Human approved AI follow-up',
+      ),
+    ).toBe(true);
+
+    const usage = await request(app.getHttpServer())
+      .get('/v1/ai/usage')
+      .set(authE)
+      .expect(200);
+    expect(
+      usage.body.some(
+        (item: { operation: string }) => item.operation === 'AGENT_RUN',
+      ),
+    ).toBe(true);
+    expect(
+      usage.body.some(
+        (item: { operation: string }) => item.operation === 'EMBEDDING',
+      ),
+    ).toBe(true);
+
+    await request(app.getHttpServer())
+      .post(`/v1/ai/runs/${run.body.id as string}/evaluations`)
+      .set(authE)
+      .send({
+        evaluator: 'PHASE4_E2E',
+        score: 1,
+        passed: true,
+        label: 'governed-run',
+      })
+      .expect(201);
+
+    const version2 = await request(app.getHttpServer())
+      .post(`/v1/ai/agents/${agentId}/versions`)
+      .set(authE)
+      .send({
+        instructions:
+          'Handle client enquiries using only tenant-approved knowledge and governed tools. Prefer human handoff when confidence is low.',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/ai/agents/${agentId}/versions/${version2.body.id as string}/activate`,
+      )
+      .set(authE)
+      .expect(201);
+
+    const versions = await request(app.getHttpServer())
+      .get(`/v1/ai/agents/${agentId}/versions`)
+      .set(authE)
+      .expect(200);
+    expect(
+      versions.body.find(
+        (item: { id: string }) => item.id === versionId,
+      )?.status,
+    ).toBe('ARCHIVED');
+    expect(
+      versions.body.find(
+        (item: { id: string }) => item.id === version2.body.id,
+      )?.status,
+    ).toBe('ACTIVE');
   });
 });

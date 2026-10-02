@@ -32,7 +32,7 @@ const nav = [
   { label: 'Command Center', href: '/dashboard', active: true },
   { label: 'CRM', href: '/crm', active: false },
   { label: 'WhatsApp', href: '/whatsapp', active: false },
-  { label: 'AI Agents' },
+  { label: 'AI Agents', href: '/ai-agents', active: false },
   { label: 'Automations' },
   { label: 'Attendance' },
   { label: 'Billing' },

@@ -25,4 +25,23 @@ describe('environment validation', () => {
       }),
     ).toThrow();
   });
+
+  it('requires an OpenAI API key for live AI transport', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        AI_TRANSPORT_MODE: 'live',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects mock AI transport in production', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'production-secret-that-is-long-enough-123456',
+        AI_TRANSPORT_MODE: 'mock',
+      }),
+    ).toThrow();
+  });
 });

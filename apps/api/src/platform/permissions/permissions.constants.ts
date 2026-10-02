@@ -49,4 +49,14 @@ export const CORE_PERMISSIONS = [
   { key: 'communication.template.manage', description: 'Manage message templates.' },
   { key: 'communication.consent.manage', description: 'Manage communication consent records.' },
   { key: 'communication.campaign.manage', description: 'Create and manage communication campaigns.' },
+
+  { key: 'ai.agent.read', description: 'Read AI agents, versions and run history.' },
+  { key: 'ai.agent.manage', description: 'Create, version, activate and configure AI agents.' },
+  { key: 'ai.agent.run', description: 'Run AI agents for permitted tenant workflows.' },
+  { key: 'ai.tool.manage', description: 'Configure governed AI tool policies.' },
+  { key: 'ai.approval.read', description: 'Read AI action approval requests.' },
+  { key: 'ai.approval.decide', description: 'Approve or reject governed AI actions.' },
+  { key: 'ai.knowledge.read', description: 'Read AI knowledge bases and documents.' },
+  { key: 'ai.knowledge.manage', description: 'Manage and ingest tenant AI knowledge.' },
+  { key: 'ai.usage.read', description: 'Read AI usage, cost and evaluation telemetry.' },
 ] as const;
