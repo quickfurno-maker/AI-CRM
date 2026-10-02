@@ -548,31 +548,60 @@ export class StaffService {
     }
 
     return this.database.db.transaction(async (tx) => {
-      const [seat] = await tx
-        .insert(memberSeatAssignments)
-        .values({
-          organizationId: principal.organizationId,
-          organizationMemberId: membershipId,
-          accessClass: dto.accessClass,
-          status: 'ACTIVE',
-          assignedByMemberId: principal.membershipId,
-          assignedAt: new Date(),
-          metadata: dto.metadata,
-        })
-        .onConflictDoUpdate({
-          target: memberSeatAssignments.organizationMemberId,
-          set: {
+      const assignmentValues = {
+        accessClass: dto.accessClass,
+        status: 'ACTIVE',
+        assignedByMemberId: principal.membershipId,
+        assignedAt: new Date(),
+        revokedByMemberId: null,
+        revokedAt: null,
+        metadata: dto.metadata,
+        updatedAt: new Date(),
+      } as const;
+
+      let seat: typeof memberSeatAssignments.$inferSelect;
+      if (existing) {
+        [seat] = await tx
+          .update(memberSeatAssignments)
+          .set(assignmentValues)
+          .where(eq(memberSeatAssignments.id, existing.id))
+          .returning();
+      } else {
+        const inserted = await tx
+          .insert(memberSeatAssignments)
+          .values({
+            organizationId: principal.organizationId,
+            organizationMemberId: membershipId,
             accessClass: dto.accessClass,
             status: 'ACTIVE',
             assignedByMemberId: principal.membershipId,
-            assignedAt: new Date(),
-            revokedByMemberId: null,
-            revokedAt: null,
+            assignedAt: assignmentValues.assignedAt,
             metadata: dto.metadata,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
+          })
+          .onConflictDoNothing()
+          .returning();
+
+        if (inserted[0]) {
+          seat = inserted[0];
+        } else {
+          [seat] = await tx
+            .update(memberSeatAssignments)
+            .set(assignmentValues)
+            .where(
+              and(
+                eq(
+                  memberSeatAssignments.organizationId,
+                  principal.organizationId,
+                ),
+                eq(
+                  memberSeatAssignments.organizationMemberId,
+                  membershipId,
+                ),
+              ),
+            )
+            .returning();
+        }
+      }
 
       await tx.insert(auditLogs).values({
         organizationId: principal.organizationId,
