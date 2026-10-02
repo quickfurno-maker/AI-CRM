@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { DatabaseService } from '../../platform/database/database.service.js';
 import {
@@ -121,6 +121,35 @@ export class StaffService {
       principal.organizationId,
       dto.managerMemberId,
     );
+
+    const staffLimitRows = await this.database.db
+      .select({
+        enabled: entitlements.enabled,
+        limitValue: entitlements.limitValue,
+      })
+      .from(entitlements)
+      .where(
+        and(
+          eq(entitlements.organizationId, principal.organizationId),
+          eq(entitlements.key, 'staff.records.max'),
+        ),
+      )
+      .limit(1);
+    const staffLimit = staffLimitRows[0];
+    if (staffLimit && !staffLimit.enabled) {
+      throw new ConflictException('Staff directory is not enabled for this organization.');
+    }
+    if (staffLimit?.limitValue !== null && staffLimit?.limitValue !== undefined) {
+      const currentRows = await this.database.db
+        .select({ value: count() })
+        .from(staffProfiles)
+        .where(eq(staffProfiles.organizationId, principal.organizationId));
+      if (Number(currentRows[0]?.value ?? 0) >= staffLimit.limitValue) {
+        throw new ConflictException(
+          `Staff record limit reached (${staffLimit.limitValue}).`,
+        );
+      }
+    }
 
     const duplicate = await this.database.db
       .select({ id: staffProfiles.id })
