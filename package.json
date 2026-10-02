@@ -1,0 +1,30 @@
+{
+  "name": "crm-ai-business-os",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @crm-ai/web",
+    "dev:api": "npm run start:dev -w @crm-ai/api",
+    "dev:worker": "npm run start:dev -w @crm-ai/worker",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "npm run test:e2e -w @crm-ai/api",
+    "db:generate": "npm run db:generate -w @crm-ai/api",
+    "db:migrate": "npm run db:migrate -w @crm-ai/api",
+    "db:push": "npm run db:push -w @crm-ai/api",
+    "db:studio": "npm run db:studio -w @crm-ai/api"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.8",
+    "typescript": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "npm@11.16.0"
+}

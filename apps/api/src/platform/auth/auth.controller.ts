@@ -1,0 +1,61 @@
+import {
+  Body,
+  Controller,
+  Headers,
+  Ip,
+  Post,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { CurrentPrincipal } from './current-principal.decorator.js';
+import { LoginDto } from './dto/login.dto.js';
+import { RefreshDto } from './dto/refresh.dto.js';
+import { RegisterDto } from './dto/register.dto.js';
+import { Public } from './public.decorator.js';
+import { AuthService } from './auth.service.js';
+import type { Principal } from './auth.types.js';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly auth: AuthService) {}
+
+  @Public()
+  @Post('register')
+  register(
+    @Body() dto: RegisterDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-request-id') requestId?: string,
+  ) {
+    return this.auth.register(dto, {
+      ipAddress,
+      userAgent,
+      requestId: requestId ?? randomUUID(),
+    });
+  }
+
+  @Public()
+  @Post('login')
+  login(
+    @Body() dto: LoginDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-request-id') requestId?: string,
+  ) {
+    return this.auth.login(dto, {
+      ipAddress,
+      userAgent,
+      requestId: requestId ?? randomUUID(),
+    });
+  }
+
+  @Public()
+  @Post('refresh')
+  refresh(@Body() dto: RefreshDto) {
+    return this.auth.refresh(dto);
+  }
+
+  @Post('logout')
+  logout(@CurrentPrincipal() principal: Principal) {
+    return this.auth.logout(principal);
+  }
+}
