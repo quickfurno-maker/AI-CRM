@@ -34,6 +34,7 @@ export class ConfigurePlanPriceDto {
   @IsIn(['MONTHLY', 'YEARLY']) billingCycle: 'MONTHLY' | 'YEARLY';
   @Matches(/^[A-Z]{3}$/) currency: string;
   @Matches(/^\d+(?:\.\d{1,2})?$/) amount: string;
+  @IsOptional() @Matches(/^\d+(?:\.\d{1,4})?$/) taxRatePercent?: string;
   @IsOptional() @IsIn(['DRAFT', 'ACTIVE', 'ARCHIVED']) status?: string;
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
@@ -62,6 +63,7 @@ export class ConfigureAddonPriceDto {
   @IsIn(['MONTHLY', 'YEARLY']) billingCycle: 'MONTHLY' | 'YEARLY';
   @Matches(/^[A-Z]{3}$/) currency: string;
   @Matches(/^\d+(?:\.\d{1,2})?$/) amount: string;
+  @IsOptional() @Matches(/^\d+(?:\.\d{1,4})?$/) taxRatePercent?: string;
   @IsOptional() @IsIn(['DRAFT', 'ACTIVE', 'ARCHIVED']) status?: string;
 }
 
