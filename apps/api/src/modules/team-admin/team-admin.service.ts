@@ -57,7 +57,7 @@ export class TeamAdminService {
           membershipId: organizationMembers.id,
           status: organizationMembers.status,
           isOwner: organizationMembers.isOwner,
-          joinedAt: organizationMembers.joinedAt,
+          joinedAt: organizationMembers.createdAt,
           userId: users.id,
           email: users.email,
           displayName: users.displayName,
