@@ -4,6 +4,7 @@ import { CrmController } from './crm.controller.js';
 import { CrmProvisioningService } from './crm-provisioning.service.js';
 import { CrmReferenceService } from './crm-reference.service.js';
 import { CrmSettingsService } from './crm-settings.service.js';
+import { CrmScopeService } from './crm-scope.service.js';
 import { EngagementService } from './engagement.service.js';
 import { SalesService } from './sales.service.js';
 
@@ -16,6 +17,7 @@ import { SalesService } from './sales.service.js';
     CrmSettingsService,
     CrmProvisioningService,
     CrmReferenceService,
+    CrmScopeService,
   ],
   exports: [ContactsService, SalesService, EngagementService],
 })
