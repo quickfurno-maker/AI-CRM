@@ -15,6 +15,7 @@ import {
   Workflow,
   type IconComponent,
 } from '@/components/icons';
+import { OnboardingCard } from '@/components/onboarding-card';
 import { useEffect, useMemo, useState } from 'react';
 
 type Entitlement = {
@@ -166,6 +167,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
+        <OnboardingCard />
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric
