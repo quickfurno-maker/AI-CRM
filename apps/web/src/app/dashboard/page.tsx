@@ -33,6 +33,7 @@ const nav = [
   { label: 'Command Center', href: '/dashboard', active: true },
   { label: 'CRM', href: '/crm', active: false },
   { label: 'Staff & Access', href: '/staff', active: false },
+  { label: 'Team & Roles', href: '/team', active: false },
   { label: 'Real Estate', href: '/real-estate', active: false, entitlement: 'extension.realestate' },
   { label: 'WhatsApp', href: '/whatsapp', active: false },
   { label: 'AI Agents', href: '/ai-agents', active: false },
@@ -42,7 +43,8 @@ const nav = [
   { label: 'Enterprise', href: '/enterprise', active: false, entitlement: 'enterprise.controls' },
   { label: 'Provider', href: '/provider', active: false, adminOnly: true },
   { label: 'Attendance', href: '/attendance', active: false, entitlement: 'extension.attendance' },
-  { label: 'Billing', href: '/billing', active: false },
+  { label: 'Business Billing', href: '/billing', active: false },
+  { label: 'Subscription', href: '/subscription', active: false },
   { label: 'Analytics', href: '/analytics', active: false },
 ];
 
