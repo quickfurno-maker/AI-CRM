@@ -854,6 +854,13 @@ export class SaasCommercialService {
     dto: CompleteCheckoutDto,
   ) {
     this.assertPlatformAdmin(principal);
+    return this.completeCheckoutTrusted(checkoutId, dto);
+  }
+
+  async completeCheckoutTrusted(
+    checkoutId: string,
+    dto: CompleteCheckoutDto,
+  ) {
     const checkout = await this.getCheckout(checkoutId);
     if (checkout.status === 'COMPLETED') {
       return this.checkoutCompletion(checkout.id);
@@ -1198,6 +1205,13 @@ export class SaasCommercialService {
     dto: FailCheckoutDto,
   ) {
     this.assertPlatformAdmin(principal);
+    return this.failCheckoutTrusted(checkoutId, dto);
+  }
+
+  async failCheckoutTrusted(
+    checkoutId: string,
+    dto: FailCheckoutDto,
+  ) {
     const checkout = await this.getCheckout(checkoutId);
     if (checkout.status === 'FAILED') return checkout;
     if (checkout.status !== 'OPEN') {
@@ -1239,7 +1253,13 @@ export class SaasCommercialService {
     dto: ReconcileInvoicePaymentDto,
   ) {
     this.assertPlatformAdmin(principal);
+    return this.reconcileInvoicePaymentTrusted(invoiceId, dto);
+  }
 
+  async reconcileInvoicePaymentTrusted(
+    invoiceId: string,
+    dto: ReconcileInvoicePaymentDto,
+  ) {
     const invoiceRows = await this.database.db
       .select()
       .from(saasInvoices)
