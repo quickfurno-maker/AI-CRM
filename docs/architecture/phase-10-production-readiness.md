@@ -179,14 +179,19 @@ The **final commercial production-launch gate remains open only because it requi
 
 ## Certification evidence
 
-Integration CI run #66 at baseline `485f33e`:
+Initial integration CI run #66 at baseline `485f33e` passed the complete quality, migration, infrastructure and container gates.
+
+Final runtime hardening baseline:
+`b6426169e9390d39ab0f4cfb890e1afe37cb3ac2`
+
+CI run #71 additionally certifies:
 - typecheck — PASS
 - lint — PASS
 - unit — PASS
 - foundation e2e — PASS
 - production builds — PASS
-- dependency audit — PASS
-- PostgreSQL migration — PASS
+- production dependency audit — PASS
+- compiled production migration runner — PASS
 - migration idempotence — PASS
 - 137 public tables — PASS
 - pgvector — PASS
@@ -195,6 +200,8 @@ Integration CI run #66 at baseline `485f33e`:
 - web container — PASS
 - worker container — PASS
 - migration container — PASS
+- migration container excludes dev-only `drizzle-kit` — PASS
+- migration container production dependency audit — PASS
 
 ## Result
 

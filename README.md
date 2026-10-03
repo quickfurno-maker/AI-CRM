@@ -8,10 +8,10 @@ Industry-neutral, multi-tenant SaaS for CRM, WhatsApp, governed AI agents, autom
 
 Phase 10/11 merge PR: **#2**
 
-Full-code merge baseline:
-`3637eaa3618ce8657ae11e003cab3394141e70e6`
+Certified runtime baseline:
+`b6426169e9390d39ab0f4cfb890e1afe37cb3ac2`
 
-The documentation-only synchronization commit(s) after that merge do not change runtime behavior.
+This includes the post-merge production migration-image hardening: production migrations run through compiled `drizzle-orm`, the migration runtime is pruned to production dependencies, and CI proves dev-only `drizzle-kit` is absent. Documentation-only synchronization commits after this baseline do not change runtime behavior.
 
 CI certification:
 - TypeScript: API / web / worker — PASS
