@@ -4,13 +4,14 @@ Industry-neutral, multi-tenant SaaS for CRM, WhatsApp, governed AI agents, autom
 
 ## Current status
 
-**Internal product implementation through Phase 11 is complete on the release branch.**
+**Internal product implementation through Phase 11 is complete and merged to `main`.**
 
-Release branch:
-`feat/phase-10-11-internal-completion`
+Phase 10/11 merge PR: **#2**
 
-Certified integration baseline:
-`485f33ee9cb743e3f8a8740362d61d3d15de0c47`
+Full-code merge baseline:
+`3637eaa3618ce8657ae11e003cab3394141e70e6`
+
+The documentation-only synchronization commit(s) after that merge do not change runtime behavior.
 
 CI certification:
 - TypeScript: API / web / worker — PASS
