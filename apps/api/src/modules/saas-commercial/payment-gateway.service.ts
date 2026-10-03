@@ -239,6 +239,52 @@ export class PaymentGatewayService {
     return this.settleIntent(intent, payment);
   }
 
+  async confirmInvoice(
+    principal: Principal,
+    invoiceId: string,
+    dto: ConfirmGatewayPaymentDto,
+  ) {
+    const intentRows = await this.database.db
+      .select()
+      .from(saasPaymentIntents)
+      .where(
+        and(
+          eq(saasPaymentIntents.invoiceId, invoiceId),
+          eq(
+            saasPaymentIntents.organizationId,
+            principal.organizationId,
+          ),
+        ),
+      )
+      .orderBy(desc(saasPaymentIntents.createdAt))
+      .limit(1);
+    const intent = intentRows[0];
+    if (!intent) {
+      throw new NotFoundException('Invoice payment intent not found.');
+    }
+    if (intent.providerOrderId !== dto.providerOrderId) {
+      throw new BadRequestException(
+        'Provider order does not match invoice payment intent.',
+      );
+    }
+    const adapter = this.adapterFor(intent.provider);
+    if (
+      !adapter.verifyCheckoutSignature(
+        dto.providerOrderId,
+        dto.providerPaymentId,
+        dto.signature,
+      )
+    ) {
+      throw new UnauthorizedException(
+        'Payment confirmation signature is invalid.',
+      );
+    }
+    const payment = await adapter.fetchPayment(
+      dto.providerPaymentId,
+    );
+    return this.settleIntent(intent, payment);
+  }
+
   async handleWebhook(
     providerInput: string,
     rawBody: Buffer,
