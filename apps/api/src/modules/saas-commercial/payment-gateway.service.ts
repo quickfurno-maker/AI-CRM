@@ -12,6 +12,7 @@ import {
   and,
   desc,
   eq,
+  inArray,
 } from 'drizzle-orm';
 import {
   createHash,
@@ -520,6 +521,35 @@ export class PaymentGatewayService {
   }) {
     this.assertCurrency(input.currency);
     const provider = this.provider();
+
+    if (input.invoiceId || input.checkoutSessionId) {
+      const activeConditions = [
+        eq(saasPaymentIntents.provider, provider),
+        inArray(saasPaymentIntents.status, ['CREATING', 'PENDING']),
+      ];
+      if (input.invoiceId) {
+        activeConditions.push(
+          eq(saasPaymentIntents.invoiceId, input.invoiceId),
+        );
+      } else if (input.checkoutSessionId) {
+        activeConditions.push(
+          eq(
+            saasPaymentIntents.checkoutSessionId,
+            input.checkoutSessionId,
+          ),
+        );
+      }
+      const active = await this.database.db
+        .select()
+        .from(saasPaymentIntents)
+        .where(and(...activeConditions))
+        .orderBy(desc(saasPaymentIntents.createdAt))
+        .limit(1);
+      if (active[0]) {
+        return this.intentResponse(active[0], input.description);
+      }
+    }
+
     const existing = await this.database.db
       .select()
       .from(saasPaymentIntents)
