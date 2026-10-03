@@ -62,3 +62,77 @@ jobs:
       - name: Terraform validate
         working-directory: infra/terraform
         run: terraform validate
+
+  migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-trixie
+        env:
+          POSTGRES_USER: crm_ai
+          POSTGRES_PASSWORD: crm_ai_ci
+          POSTGRES_DB: crm_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm_ai -d crm_ai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://crm_ai:crm_ai_ci@127.0.0.1:5432/crm_ai
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Apply migrations
+        run: npm run db:migrate
+      - name: Prove migration idempotence
+        run: npm run db:migrate
+      - name: Verify PostgreSQL schema
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+          await client.connect();
+          const tables = await client.query(
+            "select count(*)::int as count from pg_tables where schemaname = 'public'"
+          );
+          const vector = await client.query(
+            "select extversion from pg_extension where extname = 'vector'"
+          );
+          const subscriptionColumns = await client.query(
+            "select column_name from information_schema.columns where table_schema='public' and table_name='subscriptions'"
+          );
+          const count = Number(tables.rows[0]?.count ?? 0);
+          const columns = new Set(subscriptionColumns.rows.map((row) => row.column_name));
+          console.log({ publicTables: count, vector: vector.rows[0]?.extversion, subscriptionColumns: [...columns].sort() });
+          if (count !== 137) throw new Error(`Expected 137 public tables, found ${count}.`);
+          for (const required of ['currency', 'current_period_start', 'current_period_end', 'grace_ends_at', 'pending_plan_id']) {
+            if (!columns.has(required)) throw new Error(`Missing subscriptions.${required}`);
+          }
+          if (!vector.rows[0]) throw new Error('pgvector extension is not installed.');
+          await client.end();
+          NODE
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t crm-ai-api:ci .
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile -t crm-ai-web:ci .
+      - name: Build worker image
+        run: docker build -f apps/worker/Dockerfile -t crm-ai-worker:ci .
+      - name: Build migration image
+        run: docker build -f apps/api/Dockerfile.migrate -t crm-ai-migration:ci .
