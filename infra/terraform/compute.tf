@@ -57,8 +57,8 @@ resource "aws_iam_role_policy" "execution_secrets" {
           aws_secretsmanager_secret.platform_encryption.arn,
           aws_kms_key.main.arn
         ],
-        var.openai_api_key_secret_arn == null ? [] : [var.openai_api_key_secret_arn],
-        var.meta_runtime_secret_arn == null ? [] : [var.meta_runtime_secret_arn]
+        (var.openai_api_key_secret_arn == null || var.openai_api_key_secret_arn == "") ? [] : [var.openai_api_key_secret_arn],
+        (var.meta_runtime_secret_arn == null || var.meta_runtime_secret_arn == "") ? [] : [var.meta_runtime_secret_arn]
       )
     }]
   })
@@ -182,10 +182,10 @@ locals {
   ]
 
   external_secrets = concat(
-    var.openai_api_key_secret_arn == null ? [] : [
+    (var.openai_api_key_secret_arn == null || var.openai_api_key_secret_arn == "") ? [] : [
       { name = "OPENAI_API_KEY", valueFrom = var.openai_api_key_secret_arn }
     ],
-    var.meta_runtime_secret_arn == null ? [] : [
+    (var.meta_runtime_secret_arn == null || var.meta_runtime_secret_arn == "") ? [] : [
       { name = "META_APP_SECRET", valueFrom = "${var.meta_runtime_secret_arn}:META_APP_SECRET::" },
       { name = "META_SYSTEM_USER_ACCESS_TOKEN", valueFrom = "${var.meta_runtime_secret_arn}:META_SYSTEM_USER_ACCESS_TOKEN::" },
       { name = "META_WEBHOOK_VERIFY_TOKEN", valueFrom = "${var.meta_runtime_secret_arn}:META_WEBHOOK_VERIFY_TOKEN::" }
@@ -317,7 +317,7 @@ resource "aws_ecs_task_definition" "migration" {
 check "meta_live_configuration" {
   assert {
     condition = var.meta_transport_mode != "live" || (
-      var.meta_runtime_secret_arn != null &&
+      var.meta_runtime_secret_arn != null && var.meta_runtime_secret_arn != "" &&
       var.meta_graph_version != "" &&
       var.meta_app_id != "" &&
       var.meta_embedded_signup_config_id != "" &&
@@ -330,7 +330,7 @@ check "meta_live_configuration" {
 
 check "ai_live_configuration" {
   assert {
-    condition     = var.ai_transport_mode != "live" || var.openai_api_key_secret_arn != null
+    condition     = var.ai_transport_mode != "live" || (var.openai_api_key_secret_arn != null && var.openai_api_key_secret_arn != "")
     error_message = "Live AI transport requires an OpenAI API key secret ARN."
   }
 }
