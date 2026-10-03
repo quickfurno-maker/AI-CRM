@@ -140,6 +140,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+function checkoutKey(prefix: string, priceId: string) {
+  return prefix + '-' + priceId + '-' + globalThis.crypto.randomUUID();
+}
+
 function money(value: string | number, currency = 'INR') {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -248,7 +252,7 @@ export default function SubscriptionPage() {
           method: 'POST',
           body: JSON.stringify({
             planPriceId: price.id,
-            idempotencyKey: 'portal-plan-' + price.id + '-' + Date.now(),
+            idempotencyKey: checkoutKey('portal-plan', price.id),
           }),
         });
         setNotice(
@@ -281,7 +285,7 @@ export default function SubscriptionPage() {
         body: JSON.stringify({
           addonPriceId: price.id,
           quantity: 1,
-          idempotencyKey: 'portal-addon-' + price.id + '-' + Date.now(),
+          idempotencyKey: checkoutKey('portal-addon', price.id),
         }),
       });
       setNotice(
