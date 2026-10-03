@@ -56,19 +56,22 @@ export default function SupportPage() {
   }
 
   useEffect(() => {
-    void loadTickets().catch((reason: Error) =>
-      setError(reason.message),
-    );
+    const timer = globalThis.setTimeout(() => {
+      void loadTickets().catch((reason: Error) =>
+        setError(reason.message),
+      );
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
-      setDetail(undefined);
-      return;
-    }
-    void loadDetail(selectedId).catch((reason: Error) =>
-      setError(reason.message),
-    );
+    if (!selectedId) return;
+    const timer = globalThis.setTimeout(() => {
+      void loadDetail(selectedId).catch((reason: Error) =>
+        setError(reason.message),
+      );
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, [selectedId]);
 
   const openCount = useMemo(
