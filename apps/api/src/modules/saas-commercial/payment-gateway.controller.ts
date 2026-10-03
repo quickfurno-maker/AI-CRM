@@ -6,10 +6,10 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  RawBodyRequest,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { CurrentPrincipal } from '../../platform/auth/current-principal.decorator.js';
