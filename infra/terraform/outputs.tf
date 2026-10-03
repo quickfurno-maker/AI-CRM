@@ -62,3 +62,10 @@ output "database_secret_arn" {
 output "alert_topic_arn" {
   value = aws_sns_topic.alerts.arn
 }
+
+output "ecr_repository_urls" {
+  value = {
+    for key, repository in aws_ecr_repository.service :
+    key => repository.repository_url
+  }
+}
