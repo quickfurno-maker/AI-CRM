@@ -18,6 +18,50 @@ type Metrics = {
   outstandingAmount: number;
 };
 
+type PaymentOps = {
+  gateway: {
+    mode: string;
+    provider: string;
+    enabled: boolean;
+    activationPending: boolean;
+    capabilities: {
+      oneTimeCheckout: boolean;
+      invoiceRecovery: boolean;
+      signedWebhooks: boolean;
+      refunds: boolean;
+      recurringMandates: boolean;
+    };
+  };
+  intents: Array<{
+    id: string;
+    purpose: string;
+    provider: string;
+    providerOrderId?: string | null;
+    providerPaymentId?: string | null;
+    amount: string;
+    currency: string;
+    status: string;
+    createdAt: string;
+  }>;
+  events: Array<{
+    id: string;
+    eventType: string;
+    status: string;
+    provider: string;
+    providerPaymentId?: string | null;
+    receivedAt: string;
+  }>;
+  refunds: Array<{
+    id: string;
+    receiptId: string;
+    providerRefundId?: string | null;
+    amount: string;
+    currency: string;
+    status: string;
+    createdAt: string;
+  }>;
+};
+
 type Catalog = {
   plans: Array<{
     id: string;
@@ -106,6 +150,7 @@ export default function CommercialOpsPage() {
   const [authorized, setAuthorized] = useState<boolean>();
   const [catalog, setCatalog] = useState<Catalog>();
   const [metrics, setMetrics] = useState<Metrics>();
+  const [payments, setPayments] = useState<PaymentOps>();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -126,12 +171,14 @@ export default function CommercialOpsPage() {
         return;
       }
       setAuthorized(true);
-      const [nextCatalog, nextMetrics] = await Promise.all([
+      const [nextCatalog, nextMetrics, nextPayments] = await Promise.all([
         api<Catalog>('catalog'),
         api<Metrics>('metrics'),
+        api<PaymentOps>('payment-gateway'),
       ]);
       setCatalog(nextCatalog);
       setMetrics(nextMetrics);
+      setPayments(nextPayments);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to load commercial operations.');
     }
@@ -169,6 +216,38 @@ export default function CommercialOpsPage() {
     }
   }
 
+  async function requestRefund(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setBusy('refund');
+    setError('');
+    setNotice('');
+    try {
+      await api('payment-gateway/refunds', {
+        method: 'POST',
+        body: JSON.stringify({
+          receiptId: data.get('receiptId'),
+          amount: data.get('amount'),
+          reason: data.get('reason') || undefined,
+          idempotencyKey:
+            'provider-refund-' + globalThis.crypto.randomUUID(),
+        }),
+      });
+      setNotice('Refund submitted to the payment gateway.');
+      form.reset();
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to submit refund.',
+      );
+    } finally {
+      setBusy('');
+    }
+  }
+
   if (authorized === false) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#07090d] p-6 text-zinc-100">
@@ -185,7 +264,7 @@ export default function CommercialOpsPage() {
     );
   }
 
-  if (authorized === undefined || !catalog || !metrics) {
+  if (authorized === undefined || !catalog || !metrics || !payments) {
     return <WorkspaceLoading label="Commercial Operations" />;
   }
 
@@ -218,6 +297,158 @@ export default function CommercialOpsPage() {
           <Metric label="Trials" value={String(metrics.trialing)} />
           <Metric label="Past due" value={String(metrics.pastDue)} />
           <Metric label="Open dunning" value={String(metrics.failedPaymentsOpen)} />
+        </div>
+
+        <div className="mt-6 grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
+          <section className="rounded-2xl border border-white/10 bg-[#0d1017] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="font-semibold">Payment Gateway Operations</h2>
+                <p className="mt-1 text-xs leading-5 text-zinc-600">
+                  Signed provider events settle the existing SaaS commercial ledger.
+                  Browser redirects never mark payments paid.
+                </p>
+              </div>
+              <div
+                className={
+                  'rounded-full border px-3 py-1.5 text-[10px] font-semibold ' +
+                  (payments.gateway.enabled
+                    ? 'border-emerald-400/15 bg-emerald-400/[0.05] text-emerald-200'
+                    : 'border-amber-400/15 bg-amber-400/[0.05] text-amber-200')
+                }
+              >
+                {payments.gateway.provider.toUpperCase()} ·{' '}
+                {payments.gateway.enabled
+                  ? payments.gateway.mode.toUpperCase()
+                  : 'ACTIVATION PENDING'}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric
+                label="Payment intents"
+                value={String(payments.intents.length)}
+              />
+              <Metric
+                label="Gateway events"
+                value={String(payments.events.length)}
+              />
+              <Metric
+                label="Refund records"
+                value={String(payments.refunds.length)}
+              />
+              <Metric
+                label="Signed webhooks"
+                value={
+                  payments.gateway.capabilities.signedWebhooks
+                    ? 'Enabled'
+                    : 'Pending'
+                }
+              />
+            </div>
+
+            <div className="mt-5 overflow-x-auto rounded-xl border border-white/[0.07]">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-white/[0.025] text-zinc-600">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Intent</th>
+                    <th className="px-4 py-3 font-medium">Purpose</th>
+                    <th className="px-4 py-3 font-medium">Amount</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Provider order</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.055]">
+                  {payments.intents.slice(0, 12).map((intent) => (
+                    <tr key={intent.id}>
+                      <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">
+                        {intent.id.slice(0, 8)}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-400">{intent.purpose}</td>
+                      <td className="px-4 py-3 text-zinc-300">
+                        {money(intent.amount, intent.currency)}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-400">{intent.status}</td>
+                      <td className="max-w-48 truncate px-4 py-3 font-mono text-[10px] text-zinc-600">
+                        {intent.providerOrderId ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {!payments.intents.length ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-zinc-600">
+                        No gateway payment intents yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-[#0d1017] p-5">
+            <h2 className="font-semibold">Provider refund</h2>
+            <p className="mt-1 text-xs leading-5 text-zinc-600">
+              Refunds use the original provider payment. They do not silently cancel
+              a subscription or alter entitlement policy.
+            </p>
+            <form onSubmit={requestRefund} className="mt-5 grid gap-3">
+              <input
+                className={field}
+                name="receiptId"
+                placeholder="SaaS receipt UUID"
+                required
+              />
+              <input
+                className={field}
+                name="amount"
+                inputMode="decimal"
+                placeholder="Refund amount"
+                required
+              />
+              <textarea
+                className="min-h-24 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none"
+                name="reason"
+                placeholder="Reason / operator note"
+              />
+              <button
+                disabled={busy !== '' || !payments.gateway.enabled}
+                className="h-10 rounded-xl border border-red-400/20 bg-red-400/[0.07] text-sm font-semibold text-red-200 disabled:opacity-40"
+              >
+                Submit verified refund
+              </button>
+            </form>
+            {!payments.gateway.enabled ? (
+              <div className="mt-3 text-[11px] leading-5 text-amber-200/60">
+                Internal refund workflow is ready; live provider credentials are not activated.
+              </div>
+            ) : null}
+
+            <div className="mt-6 border-t border-white/[0.07] pt-4">
+              <div className="text-xs font-semibold text-zinc-300">Recent refunds</div>
+              <div className="mt-3 grid gap-2">
+                {payments.refunds.slice(0, 6).map((refund) => (
+                  <div
+                    key={refund.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] px-3 py-2"
+                  >
+                    <div>
+                      <div className="text-xs text-zinc-300">
+                        {money(refund.amount, refund.currency)}
+                      </div>
+                      <div className="mt-0.5 font-mono text-[9px] text-zinc-700">
+                        {refund.receiptId.slice(0, 8)}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-zinc-500">{refund.status}</span>
+                  </div>
+                ))}
+                {!payments.refunds.length ? (
+                  <div className="text-xs text-zinc-700">No refunds recorded.</div>
+                ) : null}
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="mt-6 grid gap-5 xl:grid-cols-3">
