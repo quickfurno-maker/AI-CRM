@@ -87,19 +87,22 @@ export default function ProviderExperiencePage() {
   }
 
   useEffect(() => {
-    void load().catch((reason: Error) =>
-      setError(reason.message),
-    );
+    const timer = globalThis.setTimeout(() => {
+      void load().catch((reason: Error) =>
+        setError(reason.message),
+      );
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
-      setTicketDetail(undefined);
-      return;
-    }
-    void loadTicket(selectedId).catch((reason: Error) =>
-      setError(reason.message),
-    );
+    if (!selectedId) return;
+    const timer = globalThis.setTimeout(() => {
+      void loadTicket(selectedId).catch((reason: Error) =>
+        setError(reason.message),
+      );
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, [selectedId]);
 
   const pendingGovernance = useMemo(
