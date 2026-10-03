@@ -1,8 +1,8 @@
 # Phase 10D — Staff & Product Seat Foundation
 
-Status: **implementation branch / certification pending**
+Status: **complete and certified**
 
-Branch: `feat/phase-10d-staff-seat-foundation`
+Integrated into: `feat/phase-10-11-internal-completion`
 
 ## Locked commercial rule
 
@@ -147,9 +147,9 @@ Migration: `0013_staff_seat_foundation.sql`
 
 Expected schema after migration: **117 public tables**.
 
-## Certification requirements
+## Certification
 
-The Phase 10D staff/seat slice is certified only when CI confirms:
+The Phase 10D staff/seat slice is certified. Final integration CI confirms:
 
 - TypeScript checks
 - lint
