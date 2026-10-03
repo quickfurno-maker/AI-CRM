@@ -339,6 +339,10 @@ resource "aws_ecs_service" "api" {
   name            = "api"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
   desired_count   = var.api_desired_count
   launch_type     = "FARGATE"
 
@@ -369,6 +373,10 @@ resource "aws_ecs_service" "web" {
   name            = "web"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.web.arn
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
   desired_count   = var.web_desired_count
   launch_type     = "FARGATE"
 
@@ -395,6 +403,10 @@ resource "aws_ecs_service" "worker" {
   name            = "worker"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.worker.arn
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
   desired_count   = var.worker_desired_count
   launch_type     = "FARGATE"
 
