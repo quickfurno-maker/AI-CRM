@@ -40,16 +40,25 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.10.5'
 
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: terraform init -backend=false
+
       - name: Terraform validate
         working-directory: infra/terraform
-        run: |
-          terraform init -backend=false
-          terraform validate
-
-      - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        run: terraform validate
