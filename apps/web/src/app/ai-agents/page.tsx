@@ -157,8 +157,22 @@ export default function AiAgentsPage(){
         <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Agents" value={agents.length}/><Metric label="Active" value={agents.filter(x=>x.status==='ACTIVE').length}/><Metric label="Pending approvals" value={pending}/><Metric label="Runs" value={runs.length}/>
         </div>
-        <div className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1">
-          {(['agents','playground','approvals','knowledge','usage'] as Tab[]).map(x=><button key={x} onClick={()=>setTab(x)} className={'rounded-lg px-4 py-2 text-sm capitalize '+(tab===x?'bg-white/10 text-white':'text-zinc-500')}>{x}</button>)}
+        <div
+          className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1"
+          role="tablist"
+          aria-label="AI control plane views"
+        >
+          {(['agents','playground','approvals','knowledge','usage'] as Tab[]).map(x=>(
+            <button
+              key={x}
+              role="tab"
+              aria-selected={tab===x}
+              onClick={()=>setTab(x)}
+              className={'rounded-lg px-4 py-2 text-sm capitalize '+(tab===x?'bg-white/10 text-white':'text-zinc-500')}
+            >
+              {x}
+            </button>
+          ))}
         </div>
 
         {tab==='agents'?<div className="mt-6 grid gap-5 2xl:grid-cols-[390px_1fr]">
