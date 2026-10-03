@@ -507,3 +507,164 @@ export const saasDunningAttempts = pgTable(
     ),
   ],
 );
+
+
+export const saasPaymentIntents = pgTable(
+  'saas_payment_intents',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    checkoutSessionId: uuid('checkout_session_id').references(
+      () => saasCheckoutSessions.id,
+      { onDelete: 'set null' },
+    ),
+    invoiceId: uuid('invoice_id').references(() => saasInvoices.id, {
+      onDelete: 'set null',
+    }),
+    dunningCaseId: uuid('dunning_case_id').references(
+      () => saasDunningCases.id,
+      { onDelete: 'set null' },
+    ),
+    provider: varchar('provider', { length: 40 }).notNull(),
+    purpose: varchar('purpose', { length: 32 }).notNull(),
+    amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
+    status: varchar('status', { length: 32 }).default('CREATING').notNull(),
+    providerOrderId: varchar('provider_order_id', { length: 240 }),
+    providerPaymentId: varchar('provider_payment_id', { length: 240 }),
+    failureCode: varchar('failure_code', { length: 120 }),
+    failureReason: text('failure_reason'),
+    idempotencyKey: varchar('idempotency_key', { length: 240 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('saas_payment_intents_provider_idempotency_uq').on(
+      table.provider,
+      table.idempotencyKey,
+    ),
+    uniqueIndex('saas_payment_intents_provider_order_uq').on(
+      table.provider,
+      table.providerOrderId,
+    ),
+    index('saas_payment_intents_org_status_idx').on(
+      table.organizationId,
+      table.status,
+    ),
+    index('saas_payment_intents_checkout_idx').on(table.checkoutSessionId),
+    index('saas_payment_intents_invoice_idx').on(table.invoiceId),
+  ],
+);
+
+export const saasPaymentGatewayEvents = pgTable(
+  'saas_payment_gateway_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    provider: varchar('provider', { length: 40 }).notNull(),
+    providerEventId: varchar('provider_event_id', { length: 240 }).notNull(),
+    eventType: varchar('event_type', { length: 120 }).notNull(),
+    signatureValid: boolean('signature_valid').default(false).notNull(),
+    status: varchar('status', { length: 32 }).default('RECEIVED').notNull(),
+    providerOrderId: varchar('provider_order_id', { length: 240 }),
+    providerPaymentId: varchar('provider_payment_id', { length: 240 }),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    error: text('error'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('saas_payment_gateway_events_provider_event_uq').on(
+      table.provider,
+      table.providerEventId,
+    ),
+    index('saas_payment_gateway_events_status_received_idx').on(
+      table.status,
+      table.receivedAt,
+    ),
+  ],
+);
+
+export const saasPaymentRefunds = pgTable(
+  'saas_payment_refunds',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => saasInvoices.id, { onDelete: 'restrict' }),
+    receiptId: uuid('receipt_id')
+      .notNull()
+      .references(() => saasReceipts.id, { onDelete: 'restrict' }),
+    paymentIntentId: uuid('payment_intent_id').references(
+      () => saasPaymentIntents.id,
+      { onDelete: 'set null' },
+    ),
+    provider: varchar('provider', { length: 40 }).notNull(),
+    providerPaymentId: varchar('provider_payment_id', { length: 240 }).notNull(),
+    providerRefundId: varchar('provider_refund_id', { length: 240 }),
+    amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
+    status: varchar('status', { length: 32 }).default('CREATING').notNull(),
+    reason: text('reason'),
+    idempotencyKey: varchar('idempotency_key', { length: 240 }).notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('saas_payment_refunds_provider_idempotency_uq').on(
+      table.provider,
+      table.idempotencyKey,
+    ),
+    uniqueIndex('saas_payment_refunds_provider_refund_uq').on(
+      table.provider,
+      table.providerRefundId,
+    ),
+    index('saas_payment_refunds_receipt_idx').on(table.receiptId),
+    index('saas_payment_refunds_org_status_idx').on(
+      table.organizationId,
+      table.status,
+    ),
+  ],
+);
+
+export const saasPaymentMandates = pgTable(
+  'saas_payment_mandates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 40 }).notNull(),
+    providerCustomerId: varchar('provider_customer_id', { length: 240 }),
+    providerMethodId: varchar('provider_method_id', { length: 240 }),
+    providerMandateId: varchar('provider_mandate_id', { length: 240 }),
+    methodType: varchar('method_type', { length: 40 }),
+    status: varchar('status', { length: 32 }).default('PENDING').notNull(),
+    isDefault: boolean('is_default').default(false).notNull(),
+    displayLabel: varchar('display_label', { length: 120 }),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    authorizedAt: timestamp('authorized_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('saas_payment_mandates_provider_mandate_uq').on(
+      table.provider,
+      table.providerMandateId,
+    ),
+    index('saas_payment_mandates_org_status_idx').on(
+      table.organizationId,
+      table.status,
+    ),
+  ],
+);
