@@ -1962,3 +1962,66 @@ textarea:disabled {
     max-width: 94%;
   }
 }
+
+
+/* Automation canvas premium treatment */
+.premium-flow .react-flow__renderer {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(124,92,255,.045), transparent 26rem),
+    #090c12;
+}
+
+.premium-flow .react-flow__node {
+  min-width: 170px;
+  border-radius: 14px !important;
+  font-size: 11px;
+  box-shadow: 0 14px 34px rgba(0,0,0,.22);
+}
+
+.premium-flow .react-flow__handle {
+  height: 9px;
+  width: 9px;
+  border: 2px solid #090c12;
+  background: #a78bfa;
+}
+
+.premium-flow .react-flow__edge-text {
+  fill: #8b94a3;
+  font-size: 9px;
+}
+
+.premium-flow .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  background: rgba(13,16,22,.9);
+  box-shadow: 0 14px 36px rgba(0,0,0,.26);
+}
+
+.premium-flow .react-flow__controls-button {
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: transparent;
+  color: #9ca3af;
+}
+
+.premium-flow .react-flow__controls-button:hover {
+  background: rgba(255,255,255,.05);
+}
+
+.premium-flow .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.premium-flow .react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px;
+  background: rgba(13,16,22,.9);
+}
+
+@media (max-width: 1279px) {
+  .premium-flow {
+    min-height: 560px;
+  }
+}
