@@ -4,7 +4,7 @@
 
 **Internal commercial engine is complete and certified.**
 
-The only material remaining dependency is activation of a real payment-provider adapter and provider-side payment credentials/webhooks.
+The internal payment-gateway runtime is also complete. The remaining dependency is live merchant activation: production Razorpay credentials, webhook registration, settlement configuration and real-money certification.
 
 ## Boundary
 
@@ -119,7 +119,7 @@ Provider-neutral checkout sessions include:
 
 No card/bank credentials are stored by CRM-AI.
 
-Until the external payment adapter is activated, the UI explicitly reports that provider payment activation is pending rather than fabricating a paid state.
+The portal now creates provider payment intents, launches live checkout when enabled, performs signed server confirmation, supports Pay Now for SaaS invoices, and reports activation pending when payment mode is disabled. It never fabricates a paid state.
 
 ## SaaS invoices and receipts
 
@@ -151,7 +151,7 @@ Worker maintenance handles:
 - grace period
 - restricted state and entitlement shutdown
 
-The worker does not invent a payment-provider success. It emits provider-neutral collection requests until the real adapter is activated.
+The worker does not invent payment success. When gateway mode is active it converts renewal/dunning collection attempts into idempotent provider orders; signed provider reconciliation remains required to mark money paid.
 
 ## Entitlements
 
@@ -208,30 +208,45 @@ Provider can:
 - view MRR/ARR
 - view trials/past-due/dunning
 - view trial conversion/churn indicators
-- reconcile provider payment success/failure through guarded endpoints
+- monitor gateway mode, payment intents and signed events
+- submit guarded provider refunds
+- reconcile provider payment success/failure through canonical guarded paths
 
 ## Payment-provider activation boundary
 
-Still external:
-- choose/configure live payment gateway
-- production API credentials
-- payment checkout/session creation adapter
-- signature-verified provider webhooks
-- renewal collection adapter
-- refund/credit behavior if commercially approved
-- real payment failure/recovery drill
+Internal runtime complete:
+- provider abstraction
+- Razorpay production adapter
+- deterministic test adapter
+- server-side order creation
+- signed checkout confirmation
+- raw-body HMAC webhooks
+- provider payment fetch/verification
+- renewal/dunning collection worker
+- partial refund runtime
+- durable intents/events/refunds/mandate references
+- customer Pay Now UX
+- provider operations UI
+- Terraform secret/runtime wiring
 
-The internal domain does not hard-code one gateway.
+Still external:
+- production Razorpay merchant account
+- production credentials and webhook secret
+- live webhook registration/subscriptions
+- bank settlement configuration
+- real payment/refund/failure/recovery certification
+
+The commercial domain remains provider-neutral even though Razorpay is the first live adapter.
 
 ## Certification
 
 The integrated Phase 11 runtime is covered by the repository quality gates and migration/container certification at baseline `485f33e`.
 
 Database schema after the consolidated migration:
-**137 public tables**.
+**141 public tables**.
 
 ## Result
 
 The commercial state machine, ledger, entitlement integration, usage metering, customer portal and provider console are implemented.
 
-A real payment provider is the only dependency required to turn provider-neutral payment intents/collection events into live monetary collection.
+Live merchant credentials and provider-side activation are the remaining dependency for real monetary collection; the internal payment gateway runtime is implemented.
