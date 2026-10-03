@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Price = {
@@ -340,11 +341,7 @@ export default function SubscriptionPage() {
   }
 
   if (!portal || !catalog) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#07090d] text-sm text-zinc-500">
-        Loading subscription…
-      </main>
-    );
+    return <WorkspaceLoading label="Subscription" />;
   }
 
   return (
