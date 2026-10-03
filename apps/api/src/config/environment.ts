@@ -67,6 +67,12 @@ const schema = z
     AUTOMATION_CONSUMER_GROUP: z.string().default('crm-ai:automation'),
     AUTOMATION_SCHEDULER_ENABLED: envBoolean(false),
     AUTOMATION_SCHEDULER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1000),
+    RATE_LIMIT_ENABLED: envBoolean(true),
+    RATE_LIMIT_PUBLIC_PER_MINUTE: z.coerce.number().int().min(10).max(10000).default(120),
+    RATE_LIMIT_AUTH_PER_MINUTE: z.coerce.number().int().min(5).max(1000).default(20),
+    RATE_LIMIT_SESSION_PER_MINUTE: z.coerce.number().int().min(30).max(20000).default(600),
+    RATE_LIMIT_EXTERNAL_PER_MINUTE: z.coerce.number().int().min(30).max(20000).default(300),
+    RATE_LIMIT_WEBHOOK_PER_MINUTE: z.coerce.number().int().min(60).max(100000).default(1200),
   })
   .superRefine((env, ctx) => {
     if (
