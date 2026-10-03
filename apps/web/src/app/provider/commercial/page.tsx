@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 
@@ -185,11 +186,7 @@ export default function CommercialOpsPage() {
   }
 
   if (authorized === undefined || !catalog || !metrics) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#07090d] text-sm text-zinc-500">
-        Loading commercial operations…
-      </main>
-    );
+    return <WorkspaceLoading label="Commercial Operations" />;
   }
 
   return (
