@@ -98,19 +98,16 @@ resource "aws_iam_role_policy" "task" {
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${local.name}/api"
   retention_in_days = 30
-  kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_cloudwatch_log_group" "web" {
   name              = "/ecs/${local.name}/web"
   retention_in_days = 30
-  kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_cloudwatch_log_group" "worker" {
   name              = "/ecs/${local.name}/worker"
   retention_in_days = 30
-  kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_lb" "main" {
@@ -154,20 +151,29 @@ resource "aws_lb_target_group" "api" {
 }
 
 locals {
-  common_api_environment = [
-    { name = "NODE_ENV", value = "production" },
-    { name = "API_PORT", value = "4000" },
-    { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
-    { name = "EVENT_STREAM", value = "crm-ai:events" },
-    { name = "CORS_ORIGINS", value = "https://${var.web_domain}" },
-    { name = "PUBLIC_API_ORIGIN", value = "https://${var.api_domain}" },
-    { name = "WEB_APP_ORIGIN", value = "https://${var.web_domain}" },
-    { name = "META_TRANSPORT_MODE", value = var.meta_transport_mode },
-    { name = "AI_TRANSPORT_MODE", value = var.ai_transport_mode },
-    { name = "AI_WHATSAPP_EVENT_CONSUMER_ENABLED", value = "false" },
-    { name = "AUTOMATION_EVENT_CONSUMER_ENABLED", value = "false" },
-    { name = "AUTOMATION_SCHEDULER_ENABLED", value = "false" }
-  ]
+  common_api_environment = concat(
+    [
+      { name = "NODE_ENV", value = "production" },
+      { name = "API_PORT", value = "4000" },
+      { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
+      { name = "EVENT_STREAM", value = "crm-ai:events" },
+      { name = "CORS_ORIGINS", value = "https://${var.web_domain}" },
+      { name = "PUBLIC_API_ORIGIN", value = "https://${var.api_domain}" },
+      { name = "WEB_APP_ORIGIN", value = "https://${var.web_domain}" },
+      { name = "META_TRANSPORT_MODE", value = var.meta_transport_mode },
+      { name = "AI_TRANSPORT_MODE", value = var.ai_transport_mode },
+      { name = "AI_WHATSAPP_EVENT_CONSUMER_ENABLED", value = "false" },
+      { name = "AUTOMATION_EVENT_CONSUMER_ENABLED", value = "false" },
+      { name = "AUTOMATION_SCHEDULER_ENABLED", value = "false" }
+    ],
+    var.meta_transport_mode == "live" ? [
+      { name = "META_GRAPH_VERSION", value = var.meta_graph_version },
+      { name = "META_APP_ID", value = var.meta_app_id },
+      { name = "META_EMBEDDED_SIGNUP_CONFIG_ID", value = var.meta_embedded_signup_config_id },
+      { name = "META_PROVIDER_BUSINESS_ID", value = var.meta_provider_business_id },
+      { name = "META_SYSTEM_USER_ID", value = var.meta_system_user_id }
+    ] : []
+  )
 
   core_secrets = [
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
@@ -306,6 +312,27 @@ resource "aws_ecs_task_definition" "migration" {
       }
     }
   }])
+}
+
+check "meta_live_configuration" {
+  assert {
+    condition = var.meta_transport_mode != "live" || (
+      var.meta_runtime_secret_arn != null &&
+      var.meta_graph_version != "" &&
+      var.meta_app_id != "" &&
+      var.meta_embedded_signup_config_id != "" &&
+      var.meta_provider_business_id != "" &&
+      var.meta_system_user_id != ""
+    )
+    error_message = "Live Meta transport requires the runtime secret ARN and all Meta public identifiers."
+  }
+}
+
+check "ai_live_configuration" {
+  assert {
+    condition     = var.ai_transport_mode != "live" || var.openai_api_key_secret_arn != null
+    error_message = "Live AI transport requires an OpenAI API key secret ARN."
+  }
 }
 
 resource "aws_ecs_service" "api" {
