@@ -1578,8 +1578,8 @@ export class SaasCommercialService {
 
       await tx.insert(auditLogs).values({
         organizationId: invoice.organizationId,
-        actorType: 'USER',
-        actorId: principal.userId,
+        actorType: 'SYSTEM',
+        actorId: null,
         action: 'saas.invoice.payment_reconcile',
         resourceType: 'saas_invoice',
         resourceId: invoice.id,
