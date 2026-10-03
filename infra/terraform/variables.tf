@@ -168,3 +168,43 @@ variable "payment_runtime_secret_arn" {
   nullable  = true
   sensitive = true
 }
+
+
+variable "trust_proxy_hops" {
+  type    = number
+  default = 1
+  validation {
+    condition     = var.trust_proxy_hops >= 0 && var.trust_proxy_hops <= 10
+    error_message = "trust_proxy_hops must be between 0 and 10."
+  }
+}
+
+variable "rate_limit_enabled" {
+  type    = bool
+  default = true
+}
+
+variable "rate_limit_public_per_minute" {
+  type    = number
+  default = 120
+}
+
+variable "rate_limit_auth_per_minute" {
+  type    = number
+  default = 20
+}
+
+variable "rate_limit_session_per_minute" {
+  type    = number
+  default = 600
+}
+
+variable "rate_limit_external_per_minute" {
+  type    = number
+  default = 300
+}
+
+variable "rate_limit_webhook_per_minute" {
+  type    = number
+  default = 1200
+}
