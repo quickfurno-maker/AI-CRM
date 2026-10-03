@@ -8,10 +8,12 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import type { Principal } from '../../platform/auth/auth.types.js';
 import { CurrentPrincipal } from '../../platform/auth/current-principal.decorator.js';
 import { RequirePermission } from '../../platform/permissions/require-permission.decorator.js';
+import { PlatformAdminGuard } from '../platform-admin/platform-admin.guard.js';
 import {
   AddSupportCommentDto,
   CreateGovernanceRequestDto,
@@ -167,6 +169,7 @@ export class PlatformExperienceController {
 }
 
 @Controller('platform-admin/experience')
+@UseGuards(PlatformAdminGuard)
 export class PlatformExperienceAdminController {
   constructor(private readonly experience: PlatformExperienceService) {}
 
