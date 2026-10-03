@@ -231,6 +231,12 @@ export default function ProviderPage() {
           >
             Marketplace publishing
           </Link>
+          <Link
+            href="/provider/commercial"
+            className="mt-2 block rounded-xl border border-white/10 px-3 py-2.5 text-sm text-zinc-400 hover:bg-white/5"
+          >
+            Commercial operations
+          </Link>
 
           <div className="mt-4 max-h-[calc(100vh-180px)] space-y-2 overflow-y-auto">
             {organizations.map((organization) => (
