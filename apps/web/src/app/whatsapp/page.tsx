@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { Search } from '@/components/icons';
+import { EmptyState, WorkspaceLoading } from '@/components/workspace-states';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type MetaConnection = {
   id: string;
@@ -166,6 +168,9 @@ export default function WhatsAppPage() {
   const [selectedId, setSelectedId] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [conversationQuery, setConversationQuery] = useState('');
+  const latestMessageRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -185,6 +190,8 @@ export default function WhatsAppPage() {
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to load WhatsApp.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -206,7 +213,34 @@ export default function WhatsAppPage() {
     return () => window.clearTimeout(timer);
   }, [selectedId]);
 
+  const normalizedConversationQuery = conversationQuery.trim().toLowerCase();
+  const visibleConversations = useMemo(
+    () =>
+      normalizedConversationQuery
+        ? conversations.filter((conversation) =>
+            [
+              conversation.contactName,
+              conversation.contactPhone,
+              conversation.handlingMode,
+              conversation.status,
+            ]
+              .filter(Boolean)
+              .some((value) =>
+                String(value).toLowerCase().includes(normalizedConversationQuery),
+              ),
+          )
+        : conversations,
+    [conversations, normalizedConversationQuery],
+  );
+
   const selected = conversations.find((item) => item.id === selectedId);
+
+  useEffect(() => {
+    latestMessageRef.current?.scrollIntoView({
+      block: 'end',
+      behavior: 'smooth',
+    });
+  }, [messages, selectedId]);
 
   async function sendText(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -507,6 +541,10 @@ export default function WhatsAppPage() {
     }
   }
 
+  if (loading) {
+    return <WorkspaceLoading label="WhatsApp" />;
+  }
+
   return (
     <main className="min-h-screen bg-[#07090d] text-zinc-100">
       <div className="mx-auto grid min-h-screen max-w-[1800px] lg:grid-cols-[240px_1fr]">
@@ -569,7 +607,7 @@ export default function WhatsAppPage() {
           </header>
 
           {error ? (
-            <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           ) : null}
@@ -593,11 +631,29 @@ export default function WhatsAppPage() {
           {tab === 'inbox' ? (
             <div className="mt-6 grid min-h-[650px] overflow-hidden rounded-2xl border border-white/10 bg-[#0d1017] xl:grid-cols-[340px_1fr]">
               <div className="border-b border-white/10 xl:border-b-0 xl:border-r">
-                <div className="border-b border-white/10 px-4 py-3 text-sm font-semibold">
-                  Conversations
+                <div className="border-b border-white/10 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                    <span className="text-sm font-semibold">Conversations</span>
+                    <span className="text-[10px] text-zinc-600">
+                      {visibleConversations.length}
+                    </span>
+                  </div>
+                  <label className="relative block">
+                    <span className="sr-only">Search conversations</span>
+                    <Search
+                      size={14}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+                    />
+                    <input
+                      value={conversationQuery}
+                      onChange={(event) => setConversationQuery(event.target.value)}
+                      placeholder="Search conversations…"
+                      className="h-9 w-full rounded-xl border border-white/[0.08] bg-white/[0.025] pl-9 pr-3 text-xs text-zinc-200 outline-none"
+                    />
+                  </label>
                 </div>
                 <div className="max-h-[650px] overflow-y-auto">
-                  {conversations.map((conversation) => (
+                  {visibleConversations.map((conversation) => (
                     <button
                       key={conversation.id}
                       onClick={() => setSelectedId(conversation.id)}
@@ -629,10 +685,20 @@ export default function WhatsAppPage() {
                       </div>
                     </button>
                   ))}
-                  {!conversations.length ? (
-                    <div className="px-4 py-16 text-center text-sm text-zinc-600">
-                      No conversations yet.
-                    </div>
+                  {!visibleConversations.length ? (
+                    <EmptyState
+                      search={Boolean(normalizedConversationQuery)}
+                      title={
+                        normalizedConversationQuery
+                          ? 'No matching conversations'
+                          : 'No conversations yet'
+                      }
+                      description={
+                        normalizedConversationQuery
+                          ? 'Try a contact name, phone number or handling mode.'
+                          : 'New WhatsApp conversations will appear here as messages arrive.'
+                      }
+                    />
                   ) : null}
                 </div>
               </div>
@@ -683,18 +749,27 @@ export default function WhatsAppPage() {
                             }
                           >
                             <div>{message.textBody ?? '[' + message.messageType + ']'}</div>
-                            <div className="mt-1 text-[10px] text-zinc-600">
-                              {message.status}
+                            <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-zinc-600">
+                              <span>
+                                {new Date(message.createdAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              <span>{message.status}</span>
                             </div>
                           </div>
                         </div>
                       ))}
+                      <div ref={latestMessageRef} />
                     </div>
 
                     <form onSubmit={sendText} className="border-t border-white/10 p-4">
                       <div className="flex gap-3">
                         <input
                           name="text"
+                          aria-label="Reply on WhatsApp"
+                          autoComplete="off"
                           placeholder="Reply on WhatsApp…"
                           className="h-11 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm outline-none focus:border-emerald-400/50"
                         />
@@ -711,8 +786,11 @@ export default function WhatsAppPage() {
                     </form>
                   </>
                 ) : (
-                  <div className="grid flex-1 place-items-center text-sm text-zinc-600">
-                    Select a conversation.
+                  <div className="grid flex-1 place-items-center p-6">
+                    <EmptyState
+                      title="Choose a conversation"
+                      description="Select a customer thread to review context, switch handling mode or reply."
+                    />
                   </div>
                 )}
               </div>
