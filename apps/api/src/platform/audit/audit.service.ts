@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service.js';
 import { auditLogs } from '../database/schema.js';
@@ -33,5 +34,31 @@ export class AuditService {
       .where(eq(auditLogs.organizationId, organizationId))
       .orderBy(desc(auditLogs.createdAt))
       .limit(safeLimit);
+  }
+
+  async export(organizationId: string, limit = 5000) {
+    const safeLimit = Math.min(Math.max(limit, 1), 5000);
+    const records = await this.database.db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.organizationId, organizationId))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(safeLimit);
+    const generatedAt = new Date().toISOString();
+    const canonical = JSON.stringify({
+      organizationId,
+      generatedAt,
+      records,
+    });
+    return {
+      organizationId,
+      generatedAt,
+      recordCount: records.length,
+      integrity: {
+        algorithm: 'SHA-256',
+        digest: createHash('sha256').update(canonical).digest('hex'),
+      },
+      records,
+    };
   }
 }
