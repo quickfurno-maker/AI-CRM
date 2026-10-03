@@ -257,12 +257,12 @@ async function importContact(
 ) {
   const displayName =
     textValue(row.displayName) ??
-    [textValue(row.firstName), textValue(row.lastName)]
+    ([textValue(row.firstName), textValue(row.lastName)]
       .filter(Boolean)
       .join(' ')
       .trim() ||
-    textValue(row.email) ||
-    textValue(row.phone);
+      textValue(row.email) ||
+      textValue(row.phone));
   if (!displayName) throw new Error('Contact displayName is required.');
 
   const email = normalizedEmail(row.email);
