@@ -18,6 +18,7 @@ import { StaffModule } from './modules/staff/staff.module.js';
 import { SaasCommercialModule } from './modules/saas-commercial/saas-commercial.module.js';
 import { TeamAdminModule } from './modules/team-admin/team-admin.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
+import { PlatformExperienceModule } from './modules/platform-experience/platform-experience.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { AuditModule } from './platform/audit/audit.module.js';
 import { AuthModule } from './platform/auth/auth.module.js';
@@ -31,6 +32,8 @@ import { OutboxModule } from './platform/outbox/outbox.module.js';
 import { PermissionsGuard } from './platform/permissions/permissions.guard.js';
 import { PermissionsModule } from './platform/permissions/permissions.module.js';
 import { SecurityModule } from './platform/security/security.module.js';
+import { RateLimitGuard } from './platform/rate-limit/rate-limit.guard.js';
+import { RateLimitModule } from './platform/rate-limit/rate-limit.module.js';
 
 @Module({
   imports: [
@@ -44,6 +47,7 @@ import { SecurityModule } from './platform/security/security.module.js';
     EntitlementsModule,
     AuditModule,
     SecurityModule,
+    RateLimitModule,
     FeatureFlagsModule,
     ExtensionsModule,
     OutboxModule,
@@ -64,9 +68,11 @@ import { SecurityModule } from './platform/security/security.module.js';
     TeamAdminModule,
     OrganizationsModule,
     PlatformAdminModule,
+    PlatformExperienceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: EnterpriseSecurityGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: EntitlementGuard },

@@ -10,6 +10,10 @@ import {
   resetStaleCrmDataJobs,
 } from './crm-data-jobs.js';
 import { runPaymentGatewayCollections } from './payment-gateway-jobs.js';
+import {
+  applyPlatformGovernanceRetention,
+  materializeOperationalNotifications,
+} from './platform-maintenance-jobs.js';
 import { runSaasCommercialMaintenance } from './saas-commercial-jobs.js';
 import {
   applyEnterpriseRetention,
@@ -271,6 +275,7 @@ async function runLoop() {
   await resetStaleWebhookClaims(pool);
   await resetStaleCrmDataJobs(pool);
   let lastRetentionRun = 0;
+  let lastNotificationRun = 0;
   let lastCommercialMaintenanceRun = 0;
 
   while (!stopping) {
@@ -289,11 +294,20 @@ async function runLoop() {
       }
       lastCommercialMaintenanceRun = Date.now();
     }
+    if (Date.now() - lastNotificationRun > 60 * 1000) {
+      try {
+        await materializeOperationalNotifications(pool);
+      } catch (error) {
+        console.error('[worker] operational notification materialization failed', error);
+      }
+      lastNotificationRun = Date.now();
+    }
     if (Date.now() - lastRetentionRun > 60 * 60 * 1000) {
       try {
         await applyEnterpriseRetention(pool);
+        await applyPlatformGovernanceRetention(pool);
       } catch (error) {
-        console.error('[worker] enterprise retention failed', error);
+        console.error('[worker] governance retention failed', error);
       }
       lastRetentionRun = Date.now();
     }
@@ -383,7 +397,8 @@ async function bootstrap() {
   console.log('[worker] WhatsApp campaign dispatcher active');
   console.log('[worker] developer webhook dispatcher active');
   console.log('[worker] CRM import/export processor active');
-  console.log('[worker] enterprise audit retention active');
+  console.log('[worker] enterprise + tenant governance retention active');
+  console.log('[worker] operational notification materializer active');
   console.log('[worker] SaaS commercial lifecycle maintenance active');
   console.log('[worker] SaaS payment collection processor active');
   await runLoop();

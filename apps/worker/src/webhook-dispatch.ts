@@ -310,11 +310,19 @@ export async function applyEnterpriseRetention(pool: Pool) {
     delete from audit_logs audit
     using enterprise_security_policies policy,
           entitlements entitlement
+    left join data_governance_policies governance
+      on governance.organization_id = entitlement.organization_id
     where audit.organization_id = policy.organization_id
       and entitlement.organization_id = policy.organization_id
       and entitlement.key = 'enterprise.controls'
       and entitlement.enabled = true
+      and coalesce(governance.legal_hold, false) = false
       and audit.created_at <
-        now() - make_interval(days => policy.audit_retention_days)
+        now() - make_interval(
+          days => least(
+            policy.audit_retention_days,
+            coalesce(governance.audit_retention_days, policy.audit_retention_days)
+          )
+        )
   `);
 }

@@ -11,7 +11,6 @@ import {
   Code2,
   MessageCircleMore,
   ShieldCheck,
-  Users,
   Workflow,
 } from '@/components/icons';
 import { MarketingFooter } from '@/components/marketing-footer';

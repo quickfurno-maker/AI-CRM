@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Search } from '@/components/icons';
 import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
@@ -116,7 +116,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function CrmPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>('leads');
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const tab: Tab =
+    requestedTab &&
+    ['contacts','companies','leads','deals','tasks','appointments','activity'].includes(requestedTab)
+      ? (requestedTab as Tab)
+      : 'leads';
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -393,7 +399,7 @@ export default function CrmPage() {
             {(['contacts', 'companies', 'leads', 'deals', 'tasks', 'appointments', 'activity'] as Tab[]).map((item) => (
               <button
                 key={item}
-                onClick={() => setTab(item)}
+                onClick={() => router.replace('/crm?tab=' + item)}
                 className={
                   'rounded-lg px-4 py-2 text-sm capitalize transition ' +
                   (tab === item

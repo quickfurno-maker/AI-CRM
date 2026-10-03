@@ -22,6 +22,6 @@ import { SalesService } from './sales.service.js';
     CrmScopeService,
     CrmMaturityService,
   ],
-  exports: [ContactsService, SalesService, EngagementService],
+  exports: [ContactsService, SalesService, EngagementService, CrmScopeService],
 })
 export class CrmModule {}

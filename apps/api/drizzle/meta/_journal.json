@@ -113,6 +113,13 @@
       "when": 1791009000000,
       "tag": "0015_payment_gateway_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791011800000,
+      "tag": "0016_final_platform_hardening",
+      "breakpoints": true
     }
   ]
 }

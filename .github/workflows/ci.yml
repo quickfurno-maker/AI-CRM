@@ -119,14 +119,18 @@ jobs:
           const paymentTables = await client.query(
             "select tablename from pg_tables where schemaname='public' and tablename = any(array['saas_payment_intents','saas_payment_gateway_events','saas_payment_refunds','saas_payment_mandates']) order by tablename"
           );
+          const hardeningTables = await client.query(
+            "select tablename from pg_tables where schemaname='public' and tablename = any(array['tenant_onboarding_states','tenant_notifications','support_tickets','support_ticket_comments','data_governance_policies','data_governance_requests']) order by tablename"
+          );
           const count = Number(tables.rows[0]?.count ?? 0);
           const columns = new Set(subscriptionColumns.rows.map((row) => row.column_name));
-          console.log({ publicTables: count, vector: vector.rows[0]?.extversion, subscriptionColumns: [...columns].sort(), paymentTables: paymentTables.rows.map((row) => row.tablename) });
-          if (count !== 141) throw new Error(`Expected 141 public tables, found ${count}.`);
+          console.log({ publicTables: count, vector: vector.rows[0]?.extversion, subscriptionColumns: [...columns].sort(), paymentTables: paymentTables.rows.map((row) => row.tablename), hardeningTables: hardeningTables.rows.map((row) => row.tablename) });
+          if (count !== 147) throw new Error(`Expected 147 public tables, found ${count}.`);
           for (const required of ['currency', 'current_period_start', 'current_period_end', 'grace_ends_at', 'pending_plan_id']) {
             if (!columns.has(required)) throw new Error(`Missing subscriptions.${required}`);
           }
           if (paymentTables.rows.length !== 4) throw new Error('Payment gateway runtime tables are incomplete.');
+          if (hardeningTables.rows.length !== 6) throw new Error('Final platform hardening tables are incomplete.');
           if (!vector.rows[0]) throw new Error('pgvector extension is not installed.');
           await client.end();
           NODE

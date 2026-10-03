@@ -2025,3 +2025,66 @@ textarea:disabled {
     min-height: 560px;
   }
 }
+
+
+/* Final platform experience surfaces */
+.premium-notification-badge {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  display: grid;
+  min-height: 17px;
+  min-width: 17px;
+  place-items: center;
+  border: 2px solid #08090d;
+  border-radius: 999px;
+  background: #a78bfa;
+  padding: 0 3px;
+  color: #09090b;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.premium-notification-panel {
+  position: absolute;
+  right: 46px;
+  top: 48px;
+  z-index: 120;
+  width: min(390px, calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: rgba(13, 16, 22, 0.985);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: blur(24px);
+  animation: premium-pop 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.premium-command-section-label {
+  padding: 7px 10px 5px;
+  color: #4f5764;
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .premium-mobile-drawer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .premium-topbar {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+@media (max-width: 639px) {
+  .premium-notification-panel {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: calc(var(--topbar-height) + 8px);
+    width: auto;
+  }
+}

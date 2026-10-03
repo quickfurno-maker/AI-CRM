@@ -143,7 +143,7 @@ resource "aws_lb_target_group" "api" {
   vpc_id      = aws_vpc.main.id
 
   health_check {
-    path                = "/v1/health"
+    path                = "/v1/health/ready"
     matcher             = "200"
     healthy_threshold   = 2
     unhealthy_threshold = 3
@@ -166,6 +166,13 @@ locals {
       { name = "SAAS_PAYMENT_MODE", value = var.saas_payment_mode },
       { name = "SAAS_PAYMENT_PROVIDER", value = var.saas_payment_provider },
       { name = "SAAS_PAYMENT_ALLOWED_CURRENCIES", value = var.saas_payment_allowed_currencies },
+      { name = "TRUST_PROXY_HOPS", value = tostring(var.trust_proxy_hops) },
+      { name = "RATE_LIMIT_ENABLED", value = tostring(var.rate_limit_enabled) },
+      { name = "RATE_LIMIT_PUBLIC_PER_MINUTE", value = tostring(var.rate_limit_public_per_minute) },
+      { name = "RATE_LIMIT_AUTH_PER_MINUTE", value = tostring(var.rate_limit_auth_per_minute) },
+      { name = "RATE_LIMIT_SESSION_PER_MINUTE", value = tostring(var.rate_limit_session_per_minute) },
+      { name = "RATE_LIMIT_EXTERNAL_PER_MINUTE", value = tostring(var.rate_limit_external_per_minute) },
+      { name = "RATE_LIMIT_WEBHOOK_PER_MINUTE", value = tostring(var.rate_limit_webhook_per_minute) },
       { name = "AI_WHATSAPP_EVENT_CONSUMER_ENABLED", value = "false" },
       { name = "AUTOMATION_EVENT_CONSUMER_ENABLED", value = "false" },
       { name = "AUTOMATION_SCHEDULER_ENABLED", value = "false" }

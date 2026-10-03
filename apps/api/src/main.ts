@@ -10,7 +10,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
   const express = app.getHttpAdapter().getInstance();
-  express.set('trust proxy', 1);
+  express.set(
+    'trust proxy',
+    config.get<number>('TRUST_PROXY_HOPS', 1),
+  );
 
   app.use(helmet());
   app.use((req: Request, res: Response, next: NextFunction) => {

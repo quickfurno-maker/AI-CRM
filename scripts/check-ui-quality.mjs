@@ -13,6 +13,13 @@ const requiredFiles = [
   'apps/web/src/app/loading.tsx',
   'apps/web/src/app/error.tsx',
   'apps/web/src/app/not-found.tsx',
+  'apps/web/src/app/support/page.tsx',
+  'apps/web/src/app/governance/page.tsx',
+  'apps/web/src/app/provider/experience/page.tsx',
+  'apps/web/src/app/manifest.ts',
+  'apps/web/src/app/offline/page.tsx',
+  'apps/web/public/sw.js',
+  'apps/web/public/icon.svg',
 ];
 
 const failures = [];
@@ -42,6 +49,14 @@ requireText('apps/web/src/app/ai-agents/page.tsx', 'role="tablist"', 'AI Agent t
 requireText('apps/web/src/app/crm/page.tsx', 'WorkspaceLoading label="CRM"', 'CRM intentional loading state is missing');
 requireText('apps/web/src/app/whatsapp/page.tsx', 'Search conversations', 'WhatsApp conversation search is missing');
 requireText('apps/web/src/app/whatsapp/page.tsx', 'latestMessageRef', 'WhatsApp latest-message positioning is missing');
+requireText('apps/web/src/components/app-shell.tsx', "/api/platform/search?q=", 'Scope-aware global record search is not wired into the command palette');
+requireText('apps/web/src/components/app-shell.tsx', "/api/platform/notifications", 'Notification center is not wired into the application shell');
+requireText('apps/web/src/app/dashboard/page.tsx', 'OnboardingCard', 'Evidence-driven onboarding is missing from Command Center');
+requireText('apps/web/src/app/support/page.tsx', "/api/platform/support/tickets", 'Tenant Support Center is not connected');
+requireText('apps/web/src/app/governance/page.tsx', "/api/platform/governance/policy", 'Tenant Governance Center is not connected');
+requireText('apps/web/src/app/provider/experience/page.tsx', "/api/platform-admin/experience", 'Provider experience review console is not connected');
+requireText('apps/web/src/app/manifest.ts', "display: 'standalone'", 'PWA manifest is missing standalone mode');
+requireText('apps/web/public/sw.js', "request.mode === 'navigate'", 'Safe offline navigation fallback is missing');
 
 if (failures.length) {
   console.error('\nUI quality gate failed:\n- ' + failures.join('\n- '));

@@ -16,6 +16,7 @@ export default defineConfig({
     './src/modules/team-admin/team-admin.schema.ts',
     './src/modules/saas-commercial/saas-commercial.schema.ts',
     './src/extensions/attendance/attendance.schema.ts',
+    './src/modules/platform-experience/platform-experience.schema.ts',
   ],
   out: './drizzle',
   dialect: 'postgresql',
