@@ -67,9 +67,11 @@ describe('RateLimitGuard', () => {
     expect(first.headers.get('x-ratelimit-remaining')).toBe('0');
 
     const second = context();
-    await expect(guard.canActivate(second.value)).rejects.toMatchObject({
-      status: 429,
-    } satisfies Partial<HttpException>);
+    const rejection = await guard
+      .canActivate(second.value)
+      .catch((error: unknown) => error);
+    expect(rejection).toBeInstanceOf(HttpException);
+    expect((rejection as HttpException).getStatus()).toBe(429);
     expect(second.headers.get('retry-after')).toBe('42');
     expect(consume).toHaveBeenCalledWith(
       'ip:127.0.0.1:POST:/v1/auth/register',
