@@ -1,0 +1,237 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable image tag. Defaults to the selected commit SHA.
+        required: false
+        type: string
+      meta_transport_mode:
+        description: Meta transport mode for this release.
+        required: true
+        default: disabled
+        type: choice
+        options:
+          - disabled
+          - live
+      ai_transport_mode:
+        description: AI transport mode for this release.
+        required: true
+        default: disabled
+        type: choice
+        options:
+          - disabled
+          - live
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      TF_VAR_web_domain: ${{ vars.PRODUCTION_WEB_DOMAIN }}
+      TF_VAR_api_domain: ${{ vars.PRODUCTION_API_DOMAIN }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_alert_email: ${{ vars.PRODUCTION_ALERT_EMAIL }}
+      TF_VAR_meta_transport_mode: ${{ inputs.meta_transport_mode }}
+      TF_VAR_ai_transport_mode: ${{ inputs.ai_transport_mode }}
+      TF_VAR_meta_graph_version: ${{ vars.META_GRAPH_VERSION }}
+      TF_VAR_meta_app_id: ${{ vars.META_APP_ID }}
+      TF_VAR_meta_embedded_signup_config_id: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}
+      TF_VAR_meta_provider_business_id: ${{ vars.META_PROVIDER_BUSINESS_ID }}
+      TF_VAR_meta_system_user_id: ${{ vars.META_SYSTEM_USER_ID }}
+      TF_VAR_meta_runtime_secret_arn: ${{ vars.META_RUNTIME_SECRET_ARN }}
+      TF_VAR_openai_api_key_secret_arn: ${{ vars.OPENAI_API_KEY_SECRET_ARN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.10.5'
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=production/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+
+      - name: Resolve immutable image names
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "${TAG}" ]; then TAG="${GITHUB_SHA}"; fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "registry=${REGISTRY}" >> "${GITHUB_OUTPUT}"
+          echo "api=${REGISTRY}/crm-ai-production-api:${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "web=${REGISTRY}/crm-ai-production-web:${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "worker=${REGISTRY}/crm-ai-production-worker:${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "migration=${REGISTRY}/crm-ai-production-migration:${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bootstrap managed ECR repositories
+        working-directory: infra/terraform
+        env:
+          TF_VAR_api_image: ${{ steps.images.outputs.api }}
+          TF_VAR_web_image: ${{ steps.images.outputs.web }}
+          TF_VAR_worker_image: ${{ steps.images.outputs.worker }}
+          TF_VAR_migration_image: ${{ steps.images.outputs.migration }}
+        run: |
+          terraform apply -auto-approve \
+            -target='aws_ecr_repository.service' \
+            -target='aws_ecr_lifecycle_policy.service'
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push immutable images
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          WEB_IMAGE: ${{ steps.images.outputs.web }}
+          WORKER_IMAGE: ${{ steps.images.outputs.worker }}
+          MIGRATION_IMAGE: ${{ steps.images.outputs.migration }}
+        run: |
+          set -euo pipefail
+          docker build -f apps/api/Dockerfile -t "${API_IMAGE}" .
+          docker build -f apps/web/Dockerfile -t "${WEB_IMAGE}" .
+          docker build -f apps/worker/Dockerfile -t "${WORKER_IMAGE}" .
+          docker build -f apps/api/Dockerfile.migrate -t "${MIGRATION_IMAGE}" .
+          docker push "${API_IMAGE}"
+          docker push "${WEB_IMAGE}"
+          docker push "${WORKER_IMAGE}"
+          docker push "${MIGRATION_IMAGE}"
+
+      - name: Apply production infrastructure
+        working-directory: infra/terraform
+        env:
+          TF_VAR_api_image: ${{ steps.images.outputs.api }}
+          TF_VAR_web_image: ${{ steps.images.outputs.web }}
+          TF_VAR_worker_image: ${{ steps.images.outputs.worker }}
+          TF_VAR_migration_image: ${{ steps.images.outputs.migration }}
+        run: terraform apply -auto-approve
+
+      - name: Run database migration
+        id: migration
+        working-directory: infra/terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLUSTER="$(terraform output -raw ecs_cluster_name)"
+          TASK_DEF="$(terraform output -raw migration_task_definition_arn)"
+          SG="$(terraform output -raw ecs_security_group_id)"
+          SUBNETS="$(terraform output -json private_app_subnet_ids | jq -r 'join(",")')"
+
+          TASK_ARN="$(aws ecs run-task \
+            --cluster "${CLUSTER}" \
+            --task-definition "${TASK_DEF}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)"
+
+          test -n "${TASK_ARN}"
+          test "${TASK_ARN}" != "None"
+          echo "task_arn=${TASK_ARN}" >> "${GITHUB_OUTPUT}"
+
+          aws ecs wait tasks-stopped --cluster "${CLUSTER}" --tasks "${TASK_ARN}"
+          EXIT_CODE="$(aws ecs describe-tasks \
+            --cluster "${CLUSTER}" \
+            --tasks "${TASK_ARN}" \
+            --query "tasks[0].containers[?name=='migration'].exitCode | [0]" \
+            --output text)"
+
+          if [ "${EXIT_CODE}" != "0" ]; then
+            aws ecs describe-tasks --cluster "${CLUSTER}" --tasks "${TASK_ARN}"
+            echo "Migration failed with exit code ${EXIT_CODE}."
+            exit 1
+          fi
+
+      - name: Deploy application task definitions
+        working-directory: infra/terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLUSTER="$(terraform output -raw ecs_cluster_name)"
+          API_SERVICE="$(terraform output -raw api_service_name)"
+          WEB_SERVICE="$(terraform output -raw web_service_name)"
+          WORKER_SERVICE="$(terraform output -raw worker_service_name)"
+
+          aws ecs update-service \
+            --cluster "${CLUSTER}" \
+            --service "${API_SERVICE}" \
+            --task-definition "$(terraform output -raw api_task_definition_arn)" \
+            --force-new-deployment >/dev/null
+
+          aws ecs update-service \
+            --cluster "${CLUSTER}" \
+            --service "${WEB_SERVICE}" \
+            --task-definition "$(terraform output -raw web_task_definition_arn)" \
+            --force-new-deployment >/dev/null
+
+          aws ecs update-service \
+            --cluster "${CLUSTER}" \
+            --service "${WORKER_SERVICE}" \
+            --task-definition "$(terraform output -raw worker_task_definition_arn)" \
+            --force-new-deployment >/dev/null
+
+          aws ecs wait services-stable \
+            --cluster "${CLUSTER}" \
+            --services "${API_SERVICE}" "${WEB_SERVICE}" "${WORKER_SERVICE}"
+
+      - name: Production health verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error \
+              "https://${{ vars.PRODUCTION_API_DOMAIN }}/v1/health" >/tmp/api-health.json; then
+              cat /tmp/api-health.json
+              break
+            fi
+            if [ "${attempt}" -eq 20 ]; then
+              echo "API health check did not become healthy."
+              exit 1
+            fi
+            sleep 15
+          done
+
+          curl --fail --silent --show-error --location \
+            "https://${{ vars.PRODUCTION_WEB_DOMAIN }}/" >/dev/null
+
+      - name: Release summary
+        run: |
+          echo "Production release completed."
+          echo "Image tag: ${{ steps.images.outputs.tag }}"
+          echo "Migration task: ${{ steps.migration.outputs.task_arn }}"

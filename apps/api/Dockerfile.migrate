@@ -1,0 +1,12 @@
+FROM node:24-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package.json package-lock.json turbo.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY apps/worker/package.json apps/worker/package.json
+RUN npm ci
+COPY apps/api/drizzle ./apps/api/drizzle
+COPY apps/api/drizzle.config.ts ./apps/api/drizzle.config.ts
+COPY apps/api/src ./apps/api/src
+CMD ["npm", "run", "db:migrate", "-w", "@crm-ai/api"]
