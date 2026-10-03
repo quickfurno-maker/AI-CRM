@@ -67,6 +67,7 @@ describe('Phase 1 SaaS foundation', () => {
     process.env.META_APP_SECRET = 'test-meta-app-secret';
     process.env.META_WEBHOOK_VERIFY_TOKEN = 'test-webhook-token';
     process.env.AI_TRANSPORT_MODE = 'mock';
+    process.env.RATE_LIMIT_ENABLED = 'false';
     process.env.SAAS_PAYMENT_MODE = 'test';
     process.env.SAAS_PAYMENT_PROVIDER = 'test';
     process.env.SAAS_PAYMENT_ALLOWED_CURRENCIES = 'INR';
@@ -151,6 +152,7 @@ describe('Phase 1 SaaS foundation', () => {
       META_APP_SECRET: 'test-meta-app-secret',
       META_WEBHOOK_VERIFY_TOKEN: 'test-webhook-token',
       AI_TRANSPORT_MODE: 'mock',
+      RATE_LIMIT_ENABLED: false,
       SAAS_PAYMENT_MODE: 'test',
       SAAS_PAYMENT_PROVIDER: 'test',
       SAAS_PAYMENT_ALLOWED_CURRENCIES: 'INR',
