@@ -32,6 +32,12 @@ export class PaymentGatewayController {
     return this.payments.status();
   }
 
+  @Get('payment-methods')
+  @RequirePermission('billing.read')
+  paymentMethods(@CurrentPrincipal() principal: Principal) {
+    return this.payments.paymentMethods(principal);
+  }
+
   @Post('checkouts/:id/payment-intent')
   @RequirePermission('billing.manage')
   checkoutIntent(
