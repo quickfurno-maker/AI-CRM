@@ -24,6 +24,16 @@ export function MarketingHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <details className="marketing-mobile-menu lg:hidden">
+            <summary aria-label="Open website navigation">Menu</summary>
+            <div className="marketing-mobile-menu-panel">
+              <Link href="/platform">Platform</Link>
+              <Link href="/pricing">Pricing</Link>
+              <Link href="/security">Security</Link>
+              <Link href="/#ai">AI + WhatsApp</Link>
+              <Link href="/#enterprise">Enterprise</Link>
+            </div>
+          </details>
           <Link href="/login" className="marketing-login">
             Sign in
           </Link>
