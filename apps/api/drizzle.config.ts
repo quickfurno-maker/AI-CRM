@@ -4,6 +4,7 @@ export default defineConfig({
   schema: [
     './src/platform/database/schema.ts',
     './src/modules/crm/crm.schema.ts',
+    './src/modules/crm/crm-maturity.schema.ts',
     './src/modules/communication/communication.schema.ts',
     './src/modules/ai/ai.schema.ts',
     './src/modules/automation/automation.schema.ts',
@@ -12,6 +13,8 @@ export default defineConfig({
     './src/modules/developer/developer.schema.ts',
     './src/modules/enterprise/enterprise.schema.ts',
     './src/modules/staff/staff.schema.ts',
+    './src/modules/team-admin/team-admin.schema.ts',
+    './src/modules/saas-commercial/saas-commercial.schema.ts',
     './src/extensions/attendance/attendance.schema.ts',
   ],
   out: './drizzle',

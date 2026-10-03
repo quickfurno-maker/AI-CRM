@@ -13,6 +13,7 @@ import {
   organizationMembers,
   outboxEvents,
 } from '../../platform/database/schema.js';
+import { SaasUsageMeterService } from '../saas-commercial/saas-usage-meter.service.js';
 import { AutomationActionService } from './automation-action.service.js';
 import {
   automationApprovals,
@@ -42,6 +43,7 @@ export class AutomationRuntimeService {
   constructor(
     private readonly database: DatabaseService,
     private readonly actions: AutomationActionService,
+    private readonly commercialUsage: SaasUsageMeterService,
   ) {}
 
   listRuns(principal: Principal, limit = 100) {
@@ -98,6 +100,11 @@ export class AutomationRuntimeService {
         'Only MANUAL workflows can be started from this endpoint.',
       );
     }
+    await this.commercialUsage.assertCanConsume(
+      principal.organizationId,
+      'automation.runs',
+      1,
+    );
 
     const [run] = await this.database.db
       .insert(automationRuns)
@@ -131,6 +138,15 @@ export class AutomationRuntimeService {
       correlationId,
     });
 
+    await this.recordAutomationUsage(
+      principal.organizationId,
+      run.id,
+      {
+        workflowId,
+        workflowVersionId: resolved.version.id,
+        triggerType: 'MANUAL',
+      },
+    );
     await this.executeRun(run.id);
     return this.getRunDetail(principal, run.id);
   }
@@ -200,6 +216,12 @@ export class AutomationRuntimeService {
         runId: existing[0].runId,
       };
     }
+
+    await this.commercialUsage.assertCanConsume(
+      event.organizationId,
+      'automation.runs',
+      1,
+    );
 
     const result = await this.database.db.transaction(async (tx) => {
       const insertedReceipt = await tx
@@ -291,6 +313,16 @@ export class AutomationRuntimeService {
       };
     }
 
+    await this.recordAutomationUsage(
+      event.organizationId,
+      result.run.id,
+      {
+        workflowId: resolved.workflow.id,
+        workflowVersionId: resolved.version.id,
+        triggerType: 'EVENT',
+        triggerEventId: event.id,
+      },
+    );
     await this.executeRun(result.run.id);
     return {
       status: 'STARTED',
@@ -1460,6 +1492,42 @@ export class AutomationRuntimeService {
       return normalized as Record<string, unknown>;
     }
     return { value: normalized };
+  }
+
+  private async recordAutomationUsage(
+    organizationId: string,
+    runId: string,
+    metadata: Record<string, unknown>,
+  ) {
+    try {
+      await this.commercialUsage.record({
+        organizationId,
+        meterKey: 'automation.runs',
+        quantity: 1,
+        sourceType: 'AUTOMATION_RUN',
+        sourceId: runId,
+        idempotencyKey: 'automation-run:' + runId,
+        metadata,
+        enforce: false,
+      });
+    } catch (error) {
+      await this.database.db
+        .insert(outboxEvents)
+        .values({
+          organizationId,
+          eventType: 'saas.usage.reconciliation_required.v1',
+          aggregateType: 'automation_run',
+          aggregateId: runId,
+          payload: {
+            meterKeys: ['automation.runs'],
+            error:
+              error instanceof Error
+                ? error.message.slice(0, 1000)
+                : String(error).slice(0, 1000),
+          },
+        })
+        .catch(() => undefined);
+    }
   }
 
   private async resolveAutomationPrincipal(

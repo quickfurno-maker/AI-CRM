@@ -1,5 +1,6 @@
 export * from './schema.js';
 export * from '../../modules/crm/crm.schema.js';
+export * from '../../modules/crm/crm-maturity.schema.js';
 export * from '../../modules/communication/communication.schema.js';
 export * from '../../modules/ai/ai.schema.js';
 export * from '../../modules/automation/automation.schema.js';
@@ -8,4 +9,6 @@ export * from '../../extensions/real-estate/real-estate.schema.js';
 export * from '../../modules/developer/developer.schema.js';
 export * from '../../modules/enterprise/enterprise.schema.js';
 export * from '../../modules/staff/staff.schema.js';
+export * from '../../modules/team-admin/team-admin.schema.js';
+export * from '../../modules/saas-commercial/saas-commercial.schema.js';
 export * from '../../extensions/attendance/attendance.schema.js';

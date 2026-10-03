@@ -4011,4 +4011,252 @@ describe('Phase 1 SaaS foundation', () => {
     );
   });
 
+  it('certifies Phase 10D and Phase 11 team and SaaS commercial controls', async () => {
+    const platformAdmin = await register({
+      email: 'phase11-platform-admin@example.com',
+      organizationName: 'Phase 11 Platform Admin',
+      organizationSlug: 'phase11-platform-admin',
+    });
+    await pool.query(
+      `update users
+       set is_platform_admin = true, updated_at = now()
+       where email = 'phase11-platform-admin@example.com'`,
+    );
+    const authAdmin = {
+      authorization: `Bearer ${platformAdmin.tokens.accessToken}`,
+    };
+
+    const tenant = await register({
+      email: 'phase11-owner@example.com',
+      organizationName: 'Phase 11 Tenant',
+      organizationSlug: 'phase11-tenant',
+    });
+    const auth = {
+      authorization: `Bearer ${tenant.tokens.accessToken}`,
+    };
+
+    const invitation = await request(app.getHttpServer())
+      .post('/v1/team-admin/invitations')
+      .set(auth)
+      .send({
+        email: 'new.member@phase11.example.com',
+        seatClass: 'FULL',
+        expiresInHours: 72,
+      })
+      .expect(201);
+    expect(invitation.body.invitation.status).toBe('PENDING');
+    expect(invitation.body.deliveryStatus).toBe(
+      'EXTERNAL_EMAIL_PROVIDER_PENDING',
+    );
+
+    const permissionCatalog = await request(app.getHttpServer())
+      .get('/v1/team-admin/permissions')
+      .set(auth)
+      .expect(200);
+    expect(permissionCatalog.body.length).toBeGreaterThan(0);
+
+    await request(app.getHttpServer())
+      .put('/v1/saas/billing-profile')
+      .set(auth)
+      .send({
+        legalName: 'Phase 11 Tenant Private Limited',
+        billingEmail: 'billing@phase11.example.com',
+        taxId: 'GST-PHASE11',
+        country: 'IN',
+      })
+      .expect(200);
+
+    const subscriptionResult = (await pool.query(
+      `select id, plan_id
+       from subscriptions
+       where organization_id = '${tenant.organization.id}'
+       limit 1`,
+    )) as { rows: Array<{ id: string; plan_id: string }> };
+    const subscription = subscriptionResult.rows[0];
+    expect(subscription).toBeTruthy();
+
+    const planPrice = await request(app.getHttpServer())
+      .post('/v1/platform-admin/saas/plan-prices')
+      .set(authAdmin)
+      .send({
+        planId: subscription.plan_id,
+        billingCycle: 'MONTHLY',
+        currency: 'INR',
+        amount: '999.00',
+        taxRatePercent: '18',
+        status: 'ACTIVE',
+        trialDays: 14,
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/v1/platform-admin/saas/meters')
+      .set(authAdmin)
+      .send({
+        planId: subscription.plan_id,
+        meterKey: 'ai.agent_runs',
+        unit: 'run',
+        currency: 'INR',
+        includedQuantity: '1',
+        unitAmount: '5',
+        warningThresholdPercent: 80,
+        enforcementMode: 'HARD_LIMIT',
+        isActive: true,
+      })
+      .expect(201);
+
+    const checkout = await request(app.getHttpServer())
+      .post('/v1/saas/checkouts/plan')
+      .set(auth)
+      .send({
+        planPriceId: planPrice.body.id,
+        idempotencyKey: 'phase11-initial-checkout',
+      })
+      .expect(201);
+    expect(checkout.body.payment.status).toBe(
+      'EXTERNAL_ACTIVATION_PENDING',
+    );
+
+    const completed = await request(app.getHttpServer())
+      .post(
+        `/v1/platform-admin/saas/checkouts/${checkout.body.id as string}/complete`,
+      )
+      .set(authAdmin)
+      .send({
+        provider: 'TEST_GATEWAY',
+        providerPaymentId: 'pay_phase11_initial',
+        providerSessionId: 'session_phase11_initial',
+      })
+      .expect(201);
+    expect(completed.body.invoice.status).toBe('PAID');
+    expect(completed.body.receipt.providerPaymentId).toBe(
+      'pay_phase11_initial',
+    );
+
+    const portal = await request(app.getHttpServer())
+      .get('/v1/saas/portal')
+      .set(auth)
+      .expect(200);
+    expect(portal.body.subscription.status).toBe('ACTIVE');
+    expect(portal.body.billingProfile.legalName).toBe(
+      'Phase 11 Tenant Private Limited',
+    );
+
+    await request(app.getHttpServer())
+      .post('/v1/platform-admin/saas/usage')
+      .set(authAdmin)
+      .send({
+        organizationId: tenant.organization.id,
+        meterKey: 'ai.agent_runs',
+        quantity: 1,
+        unit: 'run',
+        sourceType: 'E2E',
+        sourceId: 'run-phase11-1',
+        idempotencyKey: 'phase11-usage-1',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/v1/platform-admin/saas/usage')
+      .set(authAdmin)
+      .send({
+        organizationId: tenant.organization.id,
+        meterKey: 'ai.agent_runs',
+        quantity: 1,
+        unit: 'run',
+        sourceType: 'E2E',
+        sourceId: 'run-phase11-2',
+        idempotencyKey: 'phase11-usage-2',
+      })
+      .expect(409);
+
+    const renewalInvoiceId = randomUUID();
+    const dunningId = randomUUID();
+    const previousPeriodEnd = new Date(
+      Date.now() - 60 * 60 * 1000,
+    );
+    const previousPeriodStart = new Date(
+      previousPeriodEnd.getTime() - 30 * 86_400_000,
+    );
+    const renewalMetadata = JSON.stringify({
+      renewal: true,
+      targetPlanId: subscription.plan_id,
+      targetBillingCycle: 'MONTHLY',
+      renewalPeriodEnd: previousPeriodEnd.toISOString(),
+    }).replaceAll("'", "''");
+
+    await pool.query(
+      `update subscriptions
+       set status = 'PAST_DUE',
+           current_period_start = '${previousPeriodStart.toISOString()}',
+           current_period_end = '${previousPeriodEnd.toISOString()}',
+           grace_ends_at = now() + interval '7 days',
+           updated_at = now()
+       where id = '${subscription.id}'`,
+    );
+    await pool.query(
+      `insert into saas_invoices (
+         id, organization_id, subscription_id, invoice_number,
+         status, currency, subtotal, discount_amount, tax_amount,
+         total, paid_amount, balance_due, period_start, period_end,
+         due_at, metadata
+       ) values (
+         '${renewalInvoiceId}', '${tenant.organization.id}',
+         '${subscription.id}', 'SAAS-REN-E2E-PHASE11',
+         'PAST_DUE', 'INR', 999, 0, 179.82, 1178.82, 0,
+         1178.82, '${previousPeriodStart.toISOString()}',
+         '${previousPeriodEnd.toISOString()}', now(),
+         '${renewalMetadata}'::jsonb
+       )`,
+    );
+    await pool.query(
+      `insert into saas_dunning_cases (
+         id, organization_id, subscription_id, invoice_id,
+         status, attempt_count, next_attempt_at, grace_ends_at
+       ) values (
+         '${dunningId}', '${tenant.organization.id}',
+         '${subscription.id}', '${renewalInvoiceId}',
+         'OPEN', 1, now(), now() + interval '7 days'
+       )`,
+    );
+
+    const recovered = await request(app.getHttpServer())
+      .post(
+        `/v1/platform-admin/saas/invoices/${renewalInvoiceId}/payments`,
+      )
+      .set(authAdmin)
+      .send({
+        provider: 'TEST_GATEWAY',
+        providerPaymentId: 'pay_phase11_renewal',
+        providerAttemptId: 'attempt_phase11_renewal',
+      })
+      .expect(201);
+    expect(recovered.body.invoice.status).toBe('PAID');
+    expect(recovered.body.subscription.status).toBe('ACTIVE');
+    expect(recovered.body.recoveredFromDunning).toBe(true);
+    expect(
+      new Date(recovered.body.subscription.currentPeriodEnd).getTime(),
+    ).toBeGreaterThan(previousPeriodEnd.getTime());
+
+    const retry = await request(app.getHttpServer())
+      .post(
+        `/v1/platform-admin/saas/invoices/${renewalInvoiceId}/payments`,
+      )
+      .set(authAdmin)
+      .send({
+        provider: 'TEST_GATEWAY',
+        providerPaymentId: 'pay_phase11_renewal',
+        providerAttemptId: 'attempt_phase11_renewal',
+      })
+      .expect(201);
+    expect(retry.body.idempotent).toBe(true);
+
+    const dunningRows = (await pool.query(
+      `select status
+       from saas_dunning_cases
+       where id = '${dunningId}'`,
+    )) as { rows: Array<{ status: string }> };
+    expect(dunningRows.rows[0].status).toBe('RECOVERED');
+  });
+
 });

@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsDefined,
@@ -210,6 +212,16 @@ export class CreateCustomFieldDto {
   @IsIn(['TEXT', 'NUMBER', 'BOOLEAN', 'DATE', 'SELECT', 'MULTI_SELECT']) dataType: string;
   @IsOptional() @IsBoolean() isRequired?: boolean;
   @IsOptional() @IsInt() @Min(0) position?: number;
+  @IsOptional() @IsString() @MaxLength(160) groupName?: string;
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
+}
+
+export class UpdateCustomFieldDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(160) label?: string;
+  @IsOptional() @IsBoolean() isRequired?: boolean;
+  @IsOptional() @IsInt() @Min(0) position?: number;
+  @IsOptional() @IsString() @MaxLength(160) groupName?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'ARCHIVED']) status?: string;
   @IsOptional() @IsObject() config?: Record<string, unknown>;
 }
 
@@ -224,4 +236,82 @@ export class CreateSavedListDto {
   @IsString() @MinLength(1) @MaxLength(160) name: string;
   @IsOptional() @IsIn(['DYNAMIC', 'STATIC']) listType?: string;
   @IsOptional() @IsObject() filters?: Record<string, unknown>;
+}
+
+export class UpdateSavedListDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(160) name?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'ARCHIVED']) status?: string;
+  @IsOptional() @IsObject() filters?: Record<string, unknown>;
+}
+
+export class SetSavedListMembersDto {
+  @IsArray() @ArrayMaxSize(5000) @IsUUID('4', { each: true })
+  objectIds: string[];
+}
+
+export class CreateLeadScoringRuleDto {
+  @IsOptional() @IsUUID() workspaceId?: string;
+  @IsString() @MinLength(1) @MaxLength(180) name: string;
+  @IsString() @MinLength(1) @MaxLength(180) field: string;
+  @IsIn([
+    'EQ',
+    'NEQ',
+    'CONTAINS',
+    'STARTS_WITH',
+    'GT',
+    'GTE',
+    'LT',
+    'LTE',
+    'IN',
+    'IS_EMPTY',
+    'NOT_EMPTY',
+  ])
+  operator: string;
+  @IsOptional() @IsDefined() comparisonValue?: unknown;
+  @IsInt() @Min(-100) @Max(100) points: number;
+  @IsOptional() @IsInt() @Min(1) @Max(3650) decayDays?: number;
+  @IsOptional() @IsInt() @Min(-10000) @Max(10000) priority?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class UpdateLeadScoringRuleDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(180) name?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(180) field?: string;
+  @IsOptional()
+  @IsIn([
+    'EQ',
+    'NEQ',
+    'CONTAINS',
+    'STARTS_WITH',
+    'GT',
+    'GTE',
+    'LT',
+    'LTE',
+    'IN',
+    'IS_EMPTY',
+    'NOT_EMPTY',
+  ])
+  operator?: string;
+  @IsOptional() @IsDefined() comparisonValue?: unknown;
+  @IsOptional() @IsInt() @Min(-100) @Max(100) points?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(3650) decayDays?: number;
+  @IsOptional() @IsInt() @Min(-10000) @Max(10000) priority?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class CreateCrmImportJobDto {
+  @IsOptional() @IsUUID() workspaceId?: string;
+  @IsIn(['CONTACT', 'COMPANY', 'LEAD']) objectType: string;
+  @IsOptional() @IsIn(['SKIP', 'UPDATE', 'CREATE']) duplicateStrategy?: string;
+  @IsOptional() @IsObject() mapping?: Record<string, string>;
+  @IsArray() @ArrayMaxSize(5000) @IsObject({ each: true })
+  rows: Record<string, unknown>[];
+}
+
+export class CreateCrmExportJobDto {
+  @IsOptional() @IsUUID() workspaceId?: string;
+  @IsIn(['CONTACT', 'COMPANY', 'LEAD', 'DEAL']) objectType: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsString({ each: true })
+  columns?: string[];
+  @IsOptional() @IsObject() filter?: Record<string, unknown>;
 }

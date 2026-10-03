@@ -301,9 +301,22 @@ export const subscriptions = pgTable(
     billingCycle: varchar('billing_cycle', { length: 16 })
       .default('MONTHLY')
       .notNull(),
+    currency: varchar('currency', { length: 3 }).default('INR').notNull(),
     provider: varchar('provider', { length: 64 }),
     providerCustomerId: varchar('provider_customer_id', { length: 160 }),
+    providerSubscriptionId: varchar('provider_subscription_id', { length: 180 }),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    graceEndsAt: timestamp('grace_ends_at', { withTimezone: true }),
+    pendingPlanId: uuid('pending_plan_id').references(() => plans.id, {
+      onDelete: 'set null',
+    }),
+    pendingBillingCycle: varchar('pending_billing_cycle', { length: 16 }),
+    pendingChangeAt: timestamp('pending_change_at', { withTimezone: true }),
+    version: integer('version').default(1).notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

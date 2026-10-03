@@ -16,6 +16,7 @@ import {
   workspaces,
 } from '../../platform/database/schema.js';
 import { contacts, leads } from '../crm/crm.schema.js';
+import { SaasUsageMeterService } from '../saas-commercial/saas-usage-meter.service.js';
 import {
   campaignRecipients,
   campaigns,
@@ -42,6 +43,7 @@ export class CommunicationService {
     private readonly database: DatabaseService,
     private readonly config: ConfigService,
     private readonly meta: MetaTransportService,
+    private readonly commercialUsage: SaasUsageMeterService,
   ) {}
 
   private async resolveWorkspace(
@@ -454,9 +456,14 @@ export class CommunicationService {
       .limit(1);
     if (existing[0]) return existing[0];
 
+    await this.commercialUsage.assertCanConsume(
+      principal.organizationId,
+      'whatsapp.messages',
+      1,
+    );
     const result = await this.meta.sendText(channel, to, dto.text.trim());
 
-    return this.database.db.transaction(async (tx) => {
+    const message = await this.database.db.transaction(async (tx) => {
       const [message] = await tx
         .insert(messages)
         .values({
@@ -501,6 +508,17 @@ export class CommunicationService {
       });
       return message;
     });
+
+    await this.recordWhatsappUsage(
+      principal.organizationId,
+      message.id,
+      {
+        conversationId,
+        messageType: 'text',
+        actorType: principal.actorType ?? 'USER',
+      },
+    );
+    return message;
   }
 
   async sendAgentText(input: {
@@ -509,6 +527,7 @@ export class CommunicationService {
     agentId: string;
     runId: string;
     text: string;
+    idempotencyKey?: string;
   }) {
     const rows = await this.database.db
       .select({
@@ -558,7 +577,8 @@ export class CommunicationService {
       );
     }
 
-    const idempotencyKey = 'ai-run:' + input.runId;
+    const idempotencyKey =
+      input.idempotencyKey ?? 'ai-run:' + input.runId;
     const existing = await this.database.db
       .select()
       .from(messages)
@@ -571,13 +591,18 @@ export class CommunicationService {
       .limit(1);
     if (existing[0]) return existing[0];
 
+    await this.commercialUsage.assertCanConsume(
+      input.organizationId,
+      'whatsapp.messages',
+      1,
+    );
     const result = await this.meta.sendText(
       row.channel,
       row.contactPhone,
       input.text.trim(),
     );
 
-    return this.database.db.transaction(async (tx) => {
+    const message = await this.database.db.transaction(async (tx) => {
       const now = new Date();
       const [message] = await tx
         .insert(messages)
@@ -640,6 +665,19 @@ export class CommunicationService {
 
       return message;
     });
+
+    await this.recordWhatsappUsage(
+      input.organizationId,
+      message.id,
+      {
+        conversationId: input.conversationId,
+        messageType: 'text',
+        actorType: 'AI_AGENT',
+        agentId: input.agentId,
+        runId: input.runId,
+      },
+    );
+    return message;
   }
 
   async listTemplates(principal: Principal) {
@@ -915,13 +953,18 @@ export class CommunicationService {
       .limit(1);
     if (existing[0]) return existing[0];
 
+    await this.commercialUsage.assertCanConsume(
+      principal.organizationId,
+      'whatsapp.messages',
+      1,
+    );
     const result = await this.meta.sendTemplate(channel, to, {
       name: template.name,
       language: template.language,
       components: dto.components,
     });
 
-    return this.database.db.transaction(async (tx) => {
+    const message = await this.database.db.transaction(async (tx) => {
       const [message] = await tx
         .insert(messages)
         .values({
@@ -968,6 +1011,18 @@ export class CommunicationService {
       });
       return message;
     });
+
+    await this.recordWhatsappUsage(
+      principal.organizationId,
+      message.id,
+      {
+        conversationId,
+        messageType: 'template',
+        templateId: template.id,
+        actorType: principal.actorType ?? 'USER',
+      },
+    );
+    return message;
   }
 
   async setConsent(
@@ -1252,6 +1307,42 @@ export class CommunicationService {
         recipientCount: validAudience.length,
       };
     });
+  }
+
+  private async recordWhatsappUsage(
+    organizationId: string,
+    messageId: string,
+    metadata: Record<string, unknown>,
+  ) {
+    try {
+      await this.commercialUsage.record({
+        organizationId,
+        meterKey: 'whatsapp.messages',
+        quantity: 1,
+        sourceType: 'WHATSAPP_MESSAGE',
+        sourceId: messageId,
+        idempotencyKey: 'whatsapp-message:' + messageId,
+        metadata,
+        enforce: false,
+      });
+    } catch (error) {
+      await this.database.db
+        .insert(outboxEvents)
+        .values({
+          organizationId,
+          eventType: 'saas.usage.reconciliation_required.v1',
+          aggregateType: 'message',
+          aggregateId: messageId,
+          payload: {
+            meterKeys: ['whatsapp.messages'],
+            error:
+              error instanceof Error
+                ? error.message.slice(0, 1000)
+                : String(error).slice(0, 1000),
+          },
+        })
+        .catch(() => undefined);
+    }
   }
 
   listCampaigns(principal: Principal) {

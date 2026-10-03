@@ -1406,6 +1406,100 @@ export class RealEstateService {
       .limit(filters.limit ?? 10);
   }
 
+  async compareProperties(
+    principal: Principal,
+    unitIds: string[],
+  ) {
+    await this.assertEnabled(principal);
+    const uniqueIds = [...new Set(unitIds)];
+    if (uniqueIds.length < 2 || uniqueIds.length > 5) {
+      throw new BadRequestException(
+        'Property comparison requires between 2 and 5 unique units.',
+      );
+    }
+
+    const rows = await this.database.db
+      .select({ unit: realEstateUnits, project: realEstateProjects })
+      .from(realEstateUnits)
+      .leftJoin(
+        realEstateProjects,
+        eq(realEstateProjects.id, realEstateUnits.projectId),
+      )
+      .where(
+        and(
+          eq(realEstateUnits.organizationId, principal.organizationId),
+          inArray(realEstateUnits.id, uniqueIds),
+        ),
+      );
+
+    if (rows.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'One or more requested property units were not found.',
+      );
+    }
+
+    const byId = new Map(rows.map((row) => [row.unit.id, row]));
+    const ordered = uniqueIds.map((id) => byId.get(id)!);
+
+    const numeric = (
+      value: string | number | null | undefined,
+    ): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    return {
+      units: ordered.map(({ unit, project }) => ({
+        id: unit.id,
+        title: unit.title,
+        project: project
+          ? {
+              id: project.id,
+              name: project.name,
+              city: project.city,
+              locality: project.locality,
+              possessionDate: project.possessionDate,
+              amenities: project.amenities,
+            }
+          : null,
+        city: unit.city ?? project?.city ?? null,
+        locality: unit.locality ?? project?.locality ?? null,
+        propertyType: unit.propertyType,
+        configuration: unit.configuration,
+        bedrooms: unit.bedrooms,
+        bathrooms: unit.bathrooms,
+        carpetArea: numeric(unit.carpetArea),
+        builtUpArea: numeric(unit.builtUpArea),
+        areaUnit: unit.areaUnit,
+        floor: unit.floor,
+        facing: unit.facing,
+        price: numeric(unit.price),
+        currency: unit.currency,
+        inventoryStatus: unit.inventoryStatus,
+        possessionStatus: unit.possessionStatus,
+        amenities: unit.amenities,
+      })),
+      comparison: {
+        lowestPriceUnitId:
+          ordered
+            .filter(({ unit }) => unit.price !== null)
+            .sort(
+              (a, b) =>
+                Number(a.unit.price) - Number(b.unit.price),
+            )[0]?.unit.id ?? null,
+        largestCarpetAreaUnitId:
+          ordered
+            .filter(({ unit }) => unit.carpetArea !== null)
+            .sort(
+              (a, b) =>
+                Number(b.unit.carpetArea) -
+                Number(a.unit.carpetArea),
+            )[0]?.unit.id ?? null,
+      },
+    };
+  }
+
   async getProject(principal: Principal, id: string) {
     await this.assertEnabled(principal);
     return this.assertOwned(

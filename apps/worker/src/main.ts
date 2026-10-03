@@ -5,6 +5,12 @@ import {
   type CampaignRecipientJob,
 } from './campaign-dispatch.js';
 import {
+  claimCrmDataJob,
+  processCrmDataJob,
+  resetStaleCrmDataJobs,
+} from './crm-data-jobs.js';
+import { runSaasCommercialMaintenance } from './saas-commercial-jobs.js';
+import {
   applyEnterpriseRetention,
   claimWebhookBatch,
   dispatchWebhook,
@@ -262,9 +268,25 @@ async function runLoop() {
   await resetStaleClaims();
   await resetStaleCampaignClaims();
   await resetStaleWebhookClaims(pool);
+  await resetStaleCrmDataJobs(pool);
   let lastRetentionRun = 0;
+  let lastCommercialMaintenanceRun = 0;
 
   while (!stopping) {
+    if (
+      Date.now() - lastCommercialMaintenanceRun >
+      60 * 1000
+    ) {
+      try {
+        await runSaasCommercialMaintenance(pool);
+      } catch (error) {
+        console.error(
+          '[worker] SaaS commercial maintenance failed',
+          error,
+        );
+      }
+      lastCommercialMaintenanceRun = Date.now();
+    }
     if (Date.now() - lastRetentionRun > 60 * 60 * 1000) {
       try {
         await applyEnterpriseRetention(pool);
@@ -274,16 +296,19 @@ async function runLoop() {
       lastRetentionRun = Date.now();
     }
 
-    const [outboxBatch, campaignBatch, webhookBatch] = await Promise.all([
-      claimBatch(),
-      claimCampaignBatch(),
-      claimWebhookBatch(pool),
-    ]);
+    const [outboxBatch, campaignBatch, webhookBatch, crmDataJob] =
+      await Promise.all([
+        claimBatch(),
+        claimCampaignBatch(),
+        claimWebhookBatch(pool),
+        claimCrmDataJob(pool),
+      ]);
 
     if (
       !outboxBatch.length &&
       !campaignBatch.length &&
-      !webhookBatch.length
+      !webhookBatch.length &&
+      !crmDataJob
     ) {
       await sleep(500);
       continue;
@@ -324,6 +349,18 @@ async function runLoop() {
         );
       }
     }
+
+    if (!stopping && crmDataJob) {
+      try {
+        await processCrmDataJob(pool, crmDataJob);
+      } catch (error) {
+        console.error(
+          '[worker] CRM data job failed',
+          crmDataJob.id,
+          error,
+        );
+      }
+    }
   }
 }
 
@@ -343,7 +380,9 @@ async function bootstrap() {
   console.log(`[worker] publishing outbox events to ${eventStream}`);
   console.log('[worker] WhatsApp campaign dispatcher active');
   console.log('[worker] developer webhook dispatcher active');
+  console.log('[worker] CRM import/export processor active');
   console.log('[worker] enterprise audit retention active');
+  console.log('[worker] SaaS commercial lifecycle maintenance active');
   await runLoop();
   await redis.quit();
   await pool.end();
