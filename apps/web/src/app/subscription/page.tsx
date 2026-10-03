@@ -49,6 +49,56 @@ type UsageMeter = {
   warning: boolean;
 };
 
+type GatewayStatus = {
+  mode: 'disabled' | 'test' | 'live';
+  provider: 'test' | 'razorpay';
+  enabled: boolean;
+  activationPending: boolean;
+  publicKeyId: string | null;
+  clientIntegration: string;
+  capabilities: {
+    oneTimeCheckout: boolean;
+    invoiceRecovery: boolean;
+    signedWebhooks: boolean;
+    refunds: boolean;
+    recurringMandates: boolean;
+  };
+};
+
+type GatewayIntentResponse = {
+  status: string;
+  checkoutId?: string;
+  invoiceId?: string;
+  gateway: GatewayStatus;
+  client?: {
+    type: 'RAZORPAY_CHECKOUT' | 'TEST';
+    keyId: string | null;
+    orderId: string;
+    amountMinor: number;
+    currency: string;
+    name: string;
+    description: string;
+  } | null;
+};
+
+type RazorpaySuccess = {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayConstructor = new (options: {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: RazorpaySuccess) => void | Promise<void>;
+  modal?: { ondismiss?: () => void };
+  theme?: { color?: string };
+}) => { open: () => void };
+
 type Portal = {
   subscription: {
     id: string;
@@ -157,6 +207,7 @@ export default function SubscriptionPage() {
   const router = useRouter();
   const [portal, setPortal] = useState<Portal>();
   const [catalog, setCatalog] = useState<Catalog>();
+  const [gateway, setGateway] = useState<GatewayStatus>();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -164,12 +215,14 @@ export default function SubscriptionPage() {
   const load = useCallback(async () => {
     setError('');
     try {
-      const [portalData, catalogData] = await Promise.all([
+      const [portalData, catalogData, gatewayData] = await Promise.all([
         api<Portal>('portal'),
         api<Catalog>('catalog'),
+        api<GatewayStatus>('payment-gateway'),
       ]);
       setPortal(portalData);
       setCatalog(catalogData);
+      setGateway(gatewayData);
     } catch (reason) {
       if (reason instanceof Error && reason.message === 'AUTH') {
         router.replace('/login');
@@ -248,7 +301,6 @@ export default function SubscriptionPage() {
           id: string;
           total: string;
           currency: string;
-          payment: { status: string };
         }>('checkouts/plan', {
           method: 'POST',
           body: JSON.stringify({
@@ -256,13 +308,13 @@ export default function SubscriptionPage() {
             idempotencyKey: checkoutKey('portal-plan', price.id),
           }),
         });
-        setNotice(
-          'Checkout ' +
-            checkout.id +
-            ' created for ' +
-            money(checkout.total, checkout.currency) +
-            '. Payment-provider activation is still pending.',
-        );
+        await startGatewayPayment({
+          target: 'checkout',
+          id: checkout.id,
+          label:
+            'Plan checkout · ' +
+            money(checkout.total, checkout.currency),
+        });
       }
       await load();
     } catch (reason) {
@@ -289,20 +341,166 @@ export default function SubscriptionPage() {
           idempotencyKey: checkoutKey('portal-addon', price.id),
         }),
       });
-      setNotice(
-        addonName +
-          ' checkout ' +
-          checkout.id +
-          ' created for ' +
-          money(checkout.total, checkout.currency) +
-          '. Payment-provider activation is still pending.',
-      );
+      await startGatewayPayment({
+        target: 'checkout',
+        id: checkout.id,
+        label:
+          addonName +
+          ' · ' +
+          money(checkout.total, checkout.currency),
+      });
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to purchase add-on.');
     } finally {
       setBusy('');
     }
+  }
+
+  async function startGatewayPayment(input: {
+    target: 'checkout' | 'invoice';
+    id: string;
+    label: string;
+  }) {
+    const intent = await api<GatewayIntentResponse>(
+      (input.target === 'checkout' ? 'checkouts/' : 'invoices/') +
+        input.id +
+        '/payment-intent',
+      { method: 'POST' },
+    );
+
+    if (
+      intent.status === 'EXTERNAL_ACTIVATION_PENDING' ||
+      !intent.client
+    ) {
+      setNotice(
+        input.label +
+          ' is ready. Live payment gateway activation is pending.',
+      );
+      return;
+    }
+
+    if (intent.client.type === 'TEST') {
+      setNotice(
+        input.label +
+          ' created on the deterministic test gateway. CI/server tests perform signed reconciliation.',
+      );
+      return;
+    }
+
+    if (!intent.client.keyId) {
+      throw new Error('Payment gateway public key is unavailable.');
+    }
+
+    await loadRazorpayCheckout();
+    const Razorpay = (
+      window as unknown as { Razorpay?: RazorpayConstructor }
+    ).Razorpay;
+    if (!Razorpay) {
+      throw new Error('Payment checkout failed to load.');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const checkout = new Razorpay({
+        key: intent.client!.keyId!,
+        amount: intent.client!.amountMinor,
+        currency: intent.client!.currency,
+        name: intent.client!.name,
+        description: intent.client!.description,
+        order_id: intent.client!.orderId,
+        theme: { color: '#8b5cf6' },
+        handler: async (result) => {
+          try {
+            await api(
+              (input.target === 'checkout'
+                ? 'checkouts/'
+                : 'invoices/') +
+                input.id +
+                '/payment-confirmation',
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  providerOrderId: result.razorpay_order_id,
+                  providerPaymentId: result.razorpay_payment_id,
+                  signature: result.razorpay_signature,
+                }),
+              },
+            );
+            setNotice(input.label + ' paid successfully.');
+            await load();
+            resolve();
+          } catch (reason) {
+            reject(reason);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setNotice(
+              'Payment window closed. No subscription state was changed.',
+            );
+            resolve();
+          },
+        },
+      });
+      checkout.open();
+    });
+  }
+
+  async function payInvoice(invoiceId: string, amount: string, currency: string) {
+    setBusy('invoice-' + invoiceId);
+    setError('');
+    setNotice('');
+    try {
+      await startGatewayPayment({
+        target: 'invoice',
+        id: invoiceId,
+        label: 'Invoice payment · ' + money(amount, currency),
+      });
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to start invoice payment.',
+      );
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function loadRazorpayCheckout() {
+    if (
+      (
+        window as unknown as {
+          Razorpay?: RazorpayConstructor;
+        }
+      ).Razorpay
+    ) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>(
+        'script[data-business-os-razorpay]',
+      );
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), {
+          once: true,
+        });
+        existing.addEventListener(
+          'error',
+          () => reject(new Error('Unable to load payment checkout.')),
+          { once: true },
+        );
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.dataset.businessOsRazorpay = 'true';
+      script.onload = () => resolve();
+      script.onerror = () =>
+        reject(new Error('Unable to load payment checkout.'));
+      document.head.appendChild(script);
+    });
   }
 
   async function cancelSubscription() {
@@ -340,7 +538,7 @@ export default function SubscriptionPage() {
     }
   }
 
-  if (!portal || !catalog) {
+  if (!portal || !catalog || !gateway) {
     return <WorkspaceLoading label="Subscription" />;
   }
 
@@ -364,6 +562,25 @@ export default function SubscriptionPage() {
 
         {error ? <Alert tone="red">{error}</Alert> : null}
         {notice ? <Alert tone="green">{notice}</Alert> : null}
+
+        <div
+          className={
+            'mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-xs ' +
+            (gateway.enabled
+              ? 'border-emerald-400/15 bg-emerald-400/[0.05] text-emerald-100'
+              : 'border-amber-400/15 bg-amber-400/[0.05] text-amber-100')
+          }
+        >
+          <span>
+            Payment gateway: {gateway.provider.toUpperCase()} ·{' '}
+            {gateway.enabled
+              ? gateway.mode.toUpperCase()
+              : 'ACTIVATION PENDING'}
+          </span>
+          <span className="text-[10px] opacity-60">
+            Server-verified signatures · no card data stored
+          </span>
+        </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Current plan" value={portal.plan.name} detail={portal.subscription.billingCycle} />
@@ -526,6 +743,22 @@ export default function SubscriptionPage() {
               secondary: new Date(invoice.createdAt).toLocaleDateString(),
               amount: money(invoice.total, invoice.currency),
               status: invoice.status,
+              action:
+                ['OPEN', 'PAST_DUE'].includes(invoice.status) &&
+                Number(invoice.balanceDue) > 0
+                  ? {
+                      label:
+                        'Pay ' +
+                        money(invoice.balanceDue, invoice.currency),
+                      disabled: busy !== '',
+                      onClick: () =>
+                        void payInvoice(
+                          invoice.id,
+                          invoice.balanceDue,
+                          invoice.currency,
+                        ),
+                    }
+                  : undefined,
             }))}
           />
           <Ledger
@@ -573,6 +806,11 @@ function Ledger({
     secondary: string;
     amount: string;
     status: string;
+    action?: {
+      label: string;
+      disabled?: boolean;
+      onClick: () => void;
+    };
   }>;
 }) {
   return (
@@ -585,7 +823,19 @@ function Ledger({
               <div className="text-sm font-medium">{row.primary}</div>
               <div className="mt-1 text-xs text-zinc-600">{row.secondary} · {row.status}</div>
             </div>
-            <div className="text-sm text-zinc-300">{row.amount}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-zinc-300">{row.amount}</div>
+              {row.action ? (
+                <button
+                  type="button"
+                  disabled={row.action.disabled}
+                  onClick={row.action.onClick}
+                  className="rounded-lg border border-violet-400/20 bg-violet-400/[0.07] px-3 py-1.5 text-[11px] font-medium text-violet-200 disabled:opacity-40"
+                >
+                  {row.action.label}
+                </button>
+              ) : null}
+            </div>
           </div>
         ))}
         {!rows.length ? <div className="px-5 py-10 text-center text-sm text-zinc-600">No records yet.</div> : null}
