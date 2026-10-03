@@ -73,6 +73,12 @@ export class TeamAdminController {
     return this.teamAdmin.acceptInvitation(dto);
   }
 
+  @Get('permissions')
+  @RequirePermission('members.read')
+  permissions() {
+    return this.teamAdmin.listPermissions();
+  }
+
   @Get('roles')
   @RequirePermission('members.read')
   roles(@CurrentPrincipal() principal: Principal) {
