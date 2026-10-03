@@ -67,6 +67,7 @@ const schema = z
     AUTOMATION_CONSUMER_GROUP: z.string().default('crm-ai:automation'),
     AUTOMATION_SCHEDULER_ENABLED: envBoolean(false),
     AUTOMATION_SCHEDULER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1000),
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(1),
     RATE_LIMIT_ENABLED: envBoolean(true),
     RATE_LIMIT_PUBLIC_PER_MINUTE: z.coerce.number().int().min(10).max(10000).default(120),
     RATE_LIMIT_AUTH_PER_MINUTE: z.coerce.number().int().min(5).max(1000).default(20),
