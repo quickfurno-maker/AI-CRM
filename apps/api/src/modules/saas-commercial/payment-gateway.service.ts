@@ -41,6 +41,7 @@ import {
   saasInvoices,
   saasPaymentGatewayEvents,
   saasPaymentIntents,
+  saasPaymentMandates,
   saasPaymentRefunds,
   saasReceipts,
 } from './saas-commercial.schema.js';
@@ -77,6 +78,33 @@ export class PaymentGatewayService {
         refunds: mode !== 'disabled',
         recurringMandates: false,
       },
+    };
+  }
+
+  async paymentMethods(principal: Principal) {
+    const rows = await this.database.db
+      .select({
+        id: saasPaymentMandates.id,
+        provider: saasPaymentMandates.provider,
+        methodType: saasPaymentMandates.methodType,
+        status: saasPaymentMandates.status,
+        isDefault: saasPaymentMandates.isDefault,
+        displayLabel: saasPaymentMandates.displayLabel,
+        authorizedAt: saasPaymentMandates.authorizedAt,
+        revokedAt: saasPaymentMandates.revokedAt,
+      })
+      .from(saasPaymentMandates)
+      .where(
+        eq(
+          saasPaymentMandates.organizationId,
+          principal.organizationId,
+        ),
+      )
+      .orderBy(desc(saasPaymentMandates.createdAt));
+    return {
+      recurringCollection:
+        this.status().capabilities.recurringMandates,
+      methods: rows,
     };
   }
 
@@ -529,7 +557,7 @@ export class PaymentGatewayService {
         'Payment gateway operations require platform admin.',
       );
     }
-    const [intents, events, refunds] = await Promise.all([
+    const [intents, events, refunds, mandates] = await Promise.all([
       this.database.db
         .select()
         .from(saasPaymentIntents)
@@ -545,12 +573,18 @@ export class PaymentGatewayService {
         .from(saasPaymentRefunds)
         .orderBy(desc(saasPaymentRefunds.createdAt))
         .limit(100),
+      this.database.db
+        .select()
+        .from(saasPaymentMandates)
+        .orderBy(desc(saasPaymentMandates.createdAt))
+        .limit(100),
     ]);
     return {
       gateway: this.status(),
       intents,
       events,
       refunds,
+      mandates,
     };
   }
 
