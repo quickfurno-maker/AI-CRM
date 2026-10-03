@@ -116,13 +116,17 @@ jobs:
           const subscriptionColumns = await client.query(
             "select column_name from information_schema.columns where table_schema='public' and table_name='subscriptions'"
           );
+          const paymentTables = await client.query(
+            "select tablename from pg_tables where schemaname='public' and tablename = any(array['saas_payment_intents','saas_payment_gateway_events','saas_payment_refunds','saas_payment_mandates']) order by tablename"
+          );
           const count = Number(tables.rows[0]?.count ?? 0);
           const columns = new Set(subscriptionColumns.rows.map((row) => row.column_name));
-          console.log({ publicTables: count, vector: vector.rows[0]?.extversion, subscriptionColumns: [...columns].sort() });
-          if (count !== 137) throw new Error(`Expected 137 public tables, found ${count}.`);
+          console.log({ publicTables: count, vector: vector.rows[0]?.extversion, subscriptionColumns: [...columns].sort(), paymentTables: paymentTables.rows.map((row) => row.tablename) });
+          if (count !== 141) throw new Error(`Expected 141 public tables, found ${count}.`);
           for (const required of ['currency', 'current_period_start', 'current_period_end', 'grace_ends_at', 'pending_plan_id']) {
             if (!columns.has(required)) throw new Error(`Missing subscriptions.${required}`);
           }
+          if (paymentTables.rows.length !== 4) throw new Error('Payment gateway runtime tables are incomplete.');
           if (!vector.rows[0]) throw new Error('pgvector extension is not installed.');
           await client.end();
           NODE
