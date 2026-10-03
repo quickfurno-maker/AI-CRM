@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Channel = {
@@ -100,6 +101,7 @@ export default function AiWhatsappPage() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -124,6 +126,8 @@ export default function AiWhatsappPage() {
           ? reason.message
           : 'Unable to load AI WhatsApp settings.',
       );
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -195,6 +199,10 @@ export default function AiWhatsappPage() {
     }
   }
 
+  if (loading) {
+    return <WorkspaceLoading label="AI WhatsApp" />;
+  }
+
   return (
     <main className="min-h-screen bg-[#07090d] text-zinc-100">
       <div className="mx-auto max-w-[1650px] px-4 py-7 sm:px-7 lg:px-10">
@@ -229,7 +237,7 @@ export default function AiWhatsappPage() {
         </header>
 
         {error ? (
-          <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+          <div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
             {error}
           </div>
         ) : null}
