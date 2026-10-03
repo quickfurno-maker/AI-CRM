@@ -1,0 +1,12 @@
+aws_region         = "ap-south-1"
+web_domain         = "app.example.com"
+api_domain         = "api.example.com"
+cloudflare_zone_id = "replace-me"
+
+api_image       = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/crm-ai-api:sha"
+web_image       = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/crm-ai-web:sha"
+worker_image    = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/crm-ai-worker:sha"
+migration_image = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/crm-ai-migration:sha"
+
+meta_transport_mode = "disabled"
+ai_transport_mode   = "disabled"
