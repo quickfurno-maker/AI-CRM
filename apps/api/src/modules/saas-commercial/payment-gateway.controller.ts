@@ -60,6 +60,16 @@ export class PaymentGatewayController {
     return this.payments.confirmCheckout(principal, id, dto);
   }
 
+  @Post('invoices/:id/payment-confirmation')
+  @RequirePermission('billing.manage')
+  confirmInvoice(
+    @CurrentPrincipal() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConfirmGatewayPaymentDto,
+  ) {
+    return this.payments.confirmInvoice(principal, id, dto);
+  }
+
   @Public()
   @Post('payment-webhooks/:provider')
   webhook(
