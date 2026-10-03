@@ -47,6 +47,16 @@ const schema = z
     META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
     AI_TRANSPORT_MODE: z.enum(['disabled', 'mock', 'live']).default('disabled'),
     OPENAI_API_KEY: z.string().optional(),
+    SAAS_PAYMENT_MODE: z.enum(['disabled', 'test', 'live']).default('disabled'),
+    SAAS_PAYMENT_PROVIDER: z.enum(['test', 'razorpay']).default('razorpay'),
+    SAAS_PAYMENT_ALLOWED_CURRENCIES: z.string().default('INR'),
+    SAAS_PAYMENT_TEST_SECRET: z
+      .string()
+      .min(16)
+      .default('dev-payment-test-secret-change-before-production'),
+    RAZORPAY_KEY_ID: z.string().optional(),
+    RAZORPAY_KEY_SECRET: z.string().optional(),
+    RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
     AI_OPENAI_FAST_MODEL: z.string().default('gpt-6-luna'),
     AI_OPENAI_REASONING_MODEL: z.string().default('gpt-6.1-sol'),
     AI_OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
@@ -135,6 +145,41 @@ const schema = z
         path: ['OPENAI_API_KEY'],
         message: 'OPENAI_API_KEY is required for live AI transport.',
       });
+    }
+    if (
+      env.NODE_ENV === 'production' &&
+      env.SAAS_PAYMENT_MODE === 'test'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SAAS_PAYMENT_MODE'],
+        message: 'Test payment transport is not allowed in production.',
+      });
+    }
+    if (
+      env.SAAS_PAYMENT_MODE === 'live' &&
+      env.SAAS_PAYMENT_PROVIDER !== 'razorpay'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SAAS_PAYMENT_PROVIDER'],
+        message: 'Live payment transport currently requires Razorpay.',
+      });
+    }
+    if (env.SAAS_PAYMENT_MODE === 'live') {
+      for (const key of [
+        'RAZORPAY_KEY_ID',
+        'RAZORPAY_KEY_SECRET',
+        'RAZORPAY_WEBHOOK_SECRET',
+      ] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `${key} is required for live SaaS payment transport.`,
+          });
+        }
+      }
     }
   });
 

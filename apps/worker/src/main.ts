@@ -9,6 +9,7 @@ import {
   processCrmDataJob,
   resetStaleCrmDataJobs,
 } from './crm-data-jobs.js';
+import { runPaymentGatewayCollections } from './payment-gateway-jobs.js';
 import { runSaasCommercialMaintenance } from './saas-commercial-jobs.js';
 import {
   applyEnterpriseRetention,
@@ -279,9 +280,10 @@ async function runLoop() {
     ) {
       try {
         await runSaasCommercialMaintenance(pool);
+        await runPaymentGatewayCollections(pool);
       } catch (error) {
         console.error(
-          '[worker] SaaS commercial maintenance failed',
+          '[worker] SaaS commercial/payment maintenance failed',
           error,
         );
       }
@@ -383,6 +385,7 @@ async function bootstrap() {
   console.log('[worker] CRM import/export processor active');
   console.log('[worker] enterprise audit retention active');
   console.log('[worker] SaaS commercial lifecycle maintenance active');
+  console.log('[worker] SaaS payment collection processor active');
   await runLoop();
   await redis.quit();
   await pool.end();

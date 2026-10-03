@@ -58,7 +58,8 @@ resource "aws_iam_role_policy" "execution_secrets" {
           aws_kms_key.main.arn
         ],
         (var.openai_api_key_secret_arn == null || var.openai_api_key_secret_arn == "") ? [] : [var.openai_api_key_secret_arn],
-        (var.meta_runtime_secret_arn == null || var.meta_runtime_secret_arn == "") ? [] : [var.meta_runtime_secret_arn]
+        (var.meta_runtime_secret_arn == null || var.meta_runtime_secret_arn == "") ? [] : [var.meta_runtime_secret_arn],
+        (var.payment_runtime_secret_arn == null || var.payment_runtime_secret_arn == "") ? [] : [var.payment_runtime_secret_arn]
       )
     }]
   })
@@ -162,6 +163,9 @@ locals {
       { name = "WEB_APP_ORIGIN", value = "https://${var.web_domain}" },
       { name = "META_TRANSPORT_MODE", value = var.meta_transport_mode },
       { name = "AI_TRANSPORT_MODE", value = var.ai_transport_mode },
+      { name = "SAAS_PAYMENT_MODE", value = var.saas_payment_mode },
+      { name = "SAAS_PAYMENT_PROVIDER", value = var.saas_payment_provider },
+      { name = "SAAS_PAYMENT_ALLOWED_CURRENCIES", value = var.saas_payment_allowed_currencies },
       { name = "AI_WHATSAPP_EVENT_CONSUMER_ENABLED", value = "false" },
       { name = "AUTOMATION_EVENT_CONSUMER_ENABLED", value = "false" },
       { name = "AUTOMATION_SCHEDULER_ENABLED", value = "false" }
@@ -189,6 +193,11 @@ locals {
       { name = "META_APP_SECRET", valueFrom = "${var.meta_runtime_secret_arn}:META_APP_SECRET::" },
       { name = "META_SYSTEM_USER_ACCESS_TOKEN", valueFrom = "${var.meta_runtime_secret_arn}:META_SYSTEM_USER_ACCESS_TOKEN::" },
       { name = "META_WEBHOOK_VERIFY_TOKEN", valueFrom = "${var.meta_runtime_secret_arn}:META_WEBHOOK_VERIFY_TOKEN::" }
+    ],
+    (var.payment_runtime_secret_arn == null || var.payment_runtime_secret_arn == "") ? [] : [
+      { name = "RAZORPAY_KEY_ID", valueFrom = "${var.payment_runtime_secret_arn}:RAZORPAY_KEY_ID::" },
+      { name = "RAZORPAY_KEY_SECRET", valueFrom = "${var.payment_runtime_secret_arn}:RAZORPAY_KEY_SECRET::" },
+      { name = "RAZORPAY_WEBHOOK_SECRET", valueFrom = "${var.payment_runtime_secret_arn}:RAZORPAY_WEBHOOK_SECRET::" }
     ]
   )
 }
@@ -268,6 +277,9 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
       { name = "EVENT_STREAM", value = "crm-ai:events" },
       { name = "META_TRANSPORT_MODE", value = var.meta_transport_mode },
+      { name = "SAAS_PAYMENT_MODE", value = var.saas_payment_mode },
+      { name = "SAAS_PAYMENT_PROVIDER", value = var.saas_payment_provider },
+      { name = "SAAS_PAYMENT_ALLOWED_CURRENCIES", value = var.saas_payment_allowed_currencies },
       { name = "AI_WHATSAPP_EVENT_CONSUMER_ENABLED", value = "true" },
       { name = "AUTOMATION_EVENT_CONSUMER_ENABLED", value = "true" },
       { name = "AUTOMATION_SCHEDULER_ENABLED", value = "true" }
@@ -332,6 +344,17 @@ check "ai_live_configuration" {
   assert {
     condition     = var.ai_transport_mode != "live" || (var.openai_api_key_secret_arn != null && var.openai_api_key_secret_arn != "")
     error_message = "Live AI transport requires an OpenAI API key secret ARN."
+  }
+}
+
+check "payment_live_configuration" {
+  assert {
+    condition = var.saas_payment_mode != "live" || (
+      var.payment_runtime_secret_arn != null &&
+      var.payment_runtime_secret_arn != "" &&
+      var.saas_payment_provider == "razorpay"
+    )
+    error_message = "Live SaaS payment mode requires the Razorpay runtime secret ARN."
   }
 }
 

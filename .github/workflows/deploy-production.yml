@@ -23,6 +23,14 @@ on:
         options:
           - disabled
           - live
+      saas_payment_mode:
+        description: SaaS payment gateway mode for this release.
+        required: true
+        default: disabled
+        type: choice
+        options:
+          - disabled
+          - live
 
 permissions:
   contents: read
@@ -50,6 +58,10 @@ jobs:
       TF_VAR_alert_email: ${{ vars.PRODUCTION_ALERT_EMAIL }}
       TF_VAR_meta_transport_mode: ${{ inputs.meta_transport_mode }}
       TF_VAR_ai_transport_mode: ${{ inputs.ai_transport_mode }}
+      TF_VAR_saas_payment_mode: ${{ inputs.saas_payment_mode }}
+      TF_VAR_saas_payment_provider: ${{ vars.SAAS_PAYMENT_PROVIDER || 'razorpay' }}
+      TF_VAR_saas_payment_allowed_currencies: ${{ vars.SAAS_PAYMENT_ALLOWED_CURRENCIES || 'INR' }}
+      TF_VAR_payment_runtime_secret_arn: ${{ vars.PAYMENT_RUNTIME_SECRET_ARN }}
       TF_VAR_meta_graph_version: ${{ vars.META_GRAPH_VERSION }}
       TF_VAR_meta_app_id: ${{ vars.META_APP_ID }}
       TF_VAR_meta_embedded_signup_config_id: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}

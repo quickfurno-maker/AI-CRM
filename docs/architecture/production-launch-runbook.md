@@ -72,6 +72,7 @@ Populate GitHub production environment variables/secrets required by:
 Keep:
 - `META_TRANSPORT_MODE=disabled`
 - `AI_TRANSPORT_MODE=disabled`
+- `SAAS_PAYMENT_MODE=disabled`
 
 for the first infrastructure deployment.
 
@@ -180,9 +181,17 @@ Then enable the production AI WhatsApp consumer.
 
 ## 9. Payment-provider activation
 
-The internal engine is provider neutral.
+The internal gateway runtime is complete and the commercial engine remains provider neutral. Razorpay is the first production adapter.
 
-Adapter certification must prove:
+Before enabling `SAAS_PAYMENT_MODE=live`:
+- create the production Razorpay merchant account;
+- complete provider KYC/settlement configuration;
+- store `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` in the payment runtime secret;
+- set `PAYMENT_RUNTIME_SECRET_ARN`;
+- configure the public webhook URL `https://<api-domain>/v1/saas/payment-webhooks/razorpay`;
+- enable payment/refund events required by the runtime.
+
+Live certification must prove:
 - checkout session creation
 - amount/currency match server-side checkout
 - signature-verified webhook

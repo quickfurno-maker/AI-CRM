@@ -138,3 +138,33 @@ variable "meta_runtime_secret_arn" {
   nullable  = true
   sensitive = true
 }
+
+variable "saas_payment_mode" {
+  type    = string
+  default = "disabled"
+  validation {
+    condition     = contains(["disabled", "live"], var.saas_payment_mode)
+    error_message = "Production SaaS payment mode may be disabled or live, never test."
+  }
+}
+
+variable "saas_payment_provider" {
+  type    = string
+  default = "razorpay"
+  validation {
+    condition     = contains(["razorpay"], var.saas_payment_provider)
+    error_message = "Production SaaS payment provider currently supports Razorpay."
+  }
+}
+
+variable "saas_payment_allowed_currencies" {
+  type    = string
+  default = "INR"
+}
+
+variable "payment_runtime_secret_arn" {
+  type      = string
+  default   = null
+  nullable  = true
+  sensitive = true
+}

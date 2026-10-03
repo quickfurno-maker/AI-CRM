@@ -22,7 +22,7 @@ CI certification:
 - production dependency audit — PASS
 - real PostgreSQL migrations — PASS
 - migration idempotence — PASS
-- PostgreSQL schema verification — **137 public tables**
+- PostgreSQL schema verification — **141 public tables**
 - pgvector verification — PASS
 - Terraform validation — PASS
 - API/web/worker/migration container builds — PASS
@@ -31,7 +31,7 @@ The remaining launch blockers are **external activation tasks**, not unfinished 
 - production AWS + Cloudflare account deployment and restore drill
 - Meta App Review / Advanced Access / real WABA onboarding
 - production OpenAI credentials and live AI/embedding validation
-- live payment-provider adapter and payment reconciliation
+- live Razorpay merchant credentials, webhook registration and real-money payment/refund certification
 - production invitation-email provider
 - production alert receivers and real incident/rollback exercise
 
@@ -84,7 +84,7 @@ Staff records are also separate from paid product access:
 | 10D | ✅ | CRM/staff/team/resource-scope commercial maturity |
 | 10E | ✅ | Complete governed Real Estate AI toolset |
 | 10F | ✅ repo certification | Documentation + internal launch certification |
-| 11 | ✅ internal | SaaS plans, subscriptions, add-ons, usage, invoices, portal, dunning |
+| 11 | ✅ internal | SaaS plans, subscriptions, add-ons, usage, invoices, payment gateway runtime, portal, dunning |
 | 12 | 🟡 demand-triggered | Enterprise maturity / deployment options |
 
 ## Key application surfaces
@@ -207,6 +207,7 @@ Keep Meta and AI transport modes disabled until their live-provider certificatio
 See:
 - `docs/architecture/phase-10-production-readiness.md`
 - `docs/architecture/phase-11-saas-commercial-operations.md`
+- `docs/architecture/payment-gateway-runtime.md`
 - `docs/architecture/production-launch-runbook.md`
 - `docs/architecture/premium-ui-public-site.md`
 

@@ -67,6 +67,10 @@ describe('Phase 1 SaaS foundation', () => {
     process.env.META_APP_SECRET = 'test-meta-app-secret';
     process.env.META_WEBHOOK_VERIFY_TOKEN = 'test-webhook-token';
     process.env.AI_TRANSPORT_MODE = 'mock';
+    process.env.SAAS_PAYMENT_MODE = 'test';
+    process.env.SAAS_PAYMENT_PROVIDER = 'test';
+    process.env.SAAS_PAYMENT_ALLOWED_CURRENCIES = 'INR';
+    process.env.SAAS_PAYMENT_TEST_SECRET = 'phase11-payment-test-secret';
     process.env.AI_OPENAI_FAST_MODEL = 'gpt-6-luna';
     process.env.AI_OPENAI_REASONING_MODEL = 'gpt-6.1-sol';
     process.env.AI_OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -147,6 +151,10 @@ describe('Phase 1 SaaS foundation', () => {
       META_APP_SECRET: 'test-meta-app-secret',
       META_WEBHOOK_VERIFY_TOKEN: 'test-webhook-token',
       AI_TRANSPORT_MODE: 'mock',
+      SAAS_PAYMENT_MODE: 'test',
+      SAAS_PAYMENT_PROVIDER: 'test',
+      SAAS_PAYMENT_ALLOWED_CURRENCIES: 'INR',
+      SAAS_PAYMENT_TEST_SECRET: 'phase11-payment-test-secret',
       AI_OPENAI_FAST_MODEL: 'gpt-6-luna',
       AI_OPENAI_REASONING_MODEL: 'gpt-6.1-sol',
       AI_OPENAI_EMBEDDING_MODEL: 'text-embedding-3-small',
@@ -4117,21 +4125,99 @@ describe('Phase 1 SaaS foundation', () => {
       'EXTERNAL_ACTIVATION_PENDING',
     );
 
+    const initialIntent = await request(app.getHttpServer())
+      .post(
+        `/v1/saas/checkouts/${checkout.body.id as string}/payment-intent`,
+      )
+      .set(auth)
+      .expect(201);
+    expect(initialIntent.body.intent.provider).toBe('test');
+    expect(initialIntent.body.client.type).toBe('TEST');
+
+    const initialOrderId = initialIntent.body.intent
+      .providerOrderId as string;
+    const initialAmountMinor = initialIntent.body.client
+      .amountMinor as number;
+    const initialPaymentId =
+      'test_payment__' +
+      initialOrderId +
+      '__' +
+      initialAmountMinor +
+      '__INR';
+    const initialSignature = createHmac(
+      'sha256',
+      'phase11-payment-test-secret',
+    )
+      .update(initialOrderId + '|' + initialPaymentId)
+      .digest('hex');
+
     const completed = await request(app.getHttpServer())
       .post(
-        `/v1/platform-admin/saas/checkouts/${checkout.body.id as string}/complete`,
+        `/v1/saas/checkouts/${checkout.body.id as string}/payment-confirmation`,
       )
-      .set(authAdmin)
+      .set(auth)
       .send({
-        provider: 'TEST_GATEWAY',
-        providerPaymentId: 'pay_phase11_initial',
-        providerSessionId: 'session_phase11_initial',
+        providerOrderId: initialOrderId,
+        providerPaymentId: initialPaymentId,
+        signature: initialSignature,
       })
       .expect(201);
-    expect(completed.body.invoice.status).toBe('PAID');
-    expect(completed.body.receipt.providerPaymentId).toBe(
-      'pay_phase11_initial',
+    expect(completed.body.commercialResult.invoice.status).toBe(
+      'PAID',
     );
+    expect(
+      completed.body.commercialResult.receipt.providerPaymentId,
+    ).toBe(initialPaymentId);
+
+    const webhookPayload = {
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: {
+            id: initialPaymentId,
+            order_id: initialOrderId,
+            status: 'captured',
+            captured: true,
+            amount: initialAmountMinor,
+            currency: 'INR',
+          },
+        },
+      },
+    };
+    const webhookRaw = JSON.stringify(webhookPayload);
+    const webhookSignature = createHmac(
+      'sha256',
+      'phase11-payment-test-secret',
+    )
+      .update(webhookRaw)
+      .digest('hex');
+
+    await request(app.getHttpServer())
+      .post('/v1/saas/payment-webhooks/test')
+      .set('content-type', 'application/json')
+      .set('x-payment-signature', webhookSignature)
+      .send(webhookRaw)
+      .expect(201);
+    const duplicateWebhook = await request(app.getHttpServer())
+      .post('/v1/saas/payment-webhooks/test')
+      .set('content-type', 'application/json')
+      .set('x-payment-signature', webhookSignature)
+      .send(webhookRaw)
+      .expect(201);
+    expect(duplicateWebhook.body.duplicate).toBe(true);
+
+    const refund = await request(app.getHttpServer())
+      .post('/v1/platform-admin/saas/payment-gateway/refunds')
+      .set(authAdmin)
+      .send({
+        receiptId:
+          completed.body.commercialResult.receipt.id,
+        amount: '100.00',
+        reason: 'E2E partial refund',
+        idempotencyKey: 'phase11-refund-initial',
+      })
+      .expect(201);
+    expect(refund.body.status).toBe('PROCESSED');
 
     const portal = await request(app.getHttpServer())
       .get('/v1/saas/portal')
@@ -4220,33 +4306,65 @@ describe('Phase 1 SaaS foundation', () => {
        )`,
     );
 
+    const renewalIntent = await request(app.getHttpServer())
+      .post(
+        `/v1/saas/invoices/${renewalInvoiceId}/payment-intent`,
+      )
+      .set(auth)
+      .expect(201);
+    const renewalOrderId = renewalIntent.body.intent
+      .providerOrderId as string;
+    const renewalAmountMinor = renewalIntent.body.client
+      .amountMinor as number;
+    const renewalPaymentId =
+      'test_payment__' +
+      renewalOrderId +
+      '__' +
+      renewalAmountMinor +
+      '__INR';
+    const renewalSignature = createHmac(
+      'sha256',
+      'phase11-payment-test-secret',
+    )
+      .update(renewalOrderId + '|' + renewalPaymentId)
+      .digest('hex');
+
     const recovered = await request(app.getHttpServer())
       .post(
-        `/v1/platform-admin/saas/invoices/${renewalInvoiceId}/payments`,
+        `/v1/saas/invoices/${renewalInvoiceId}/payment-confirmation`,
       )
-      .set(authAdmin)
+      .set(auth)
       .send({
-        provider: 'TEST_GATEWAY',
-        providerPaymentId: 'pay_phase11_renewal',
-        providerAttemptId: 'attempt_phase11_renewal',
+        providerOrderId: renewalOrderId,
+        providerPaymentId: renewalPaymentId,
+        signature: renewalSignature,
       })
       .expect(201);
-    expect(recovered.body.invoice.status).toBe('PAID');
-    expect(recovered.body.subscription.status).toBe('ACTIVE');
-    expect(recovered.body.recoveredFromDunning).toBe(true);
+    expect(recovered.body.commercialResult.invoice.status).toBe(
+      'PAID',
+    );
     expect(
-      new Date(recovered.body.subscription.currentPeriodEnd).getTime(),
+      recovered.body.commercialResult.subscription.status,
+    ).toBe('ACTIVE');
+    expect(
+      recovered.body.commercialResult.recoveredFromDunning,
+    ).toBe(true);
+    expect(
+      new Date(
+        recovered.body.commercialResult.subscription
+          .currentPeriodEnd,
+      ).getTime(),
     ).toBeGreaterThan(previousPeriodEnd.getTime());
 
     const retry = await request(app.getHttpServer())
       .post(
-        `/v1/platform-admin/saas/invoices/${renewalInvoiceId}/payments`,
+        `/v1/saas/invoices/${renewalInvoiceId}/payment-confirmation`,
       )
-      .set(authAdmin)
+      .set(auth)
       .send({
-        provider: 'TEST_GATEWAY',
-        providerPaymentId: 'pay_phase11_renewal',
-        providerAttemptId: 'attempt_phase11_renewal',
+        providerOrderId: renewalOrderId,
+        providerPaymentId: renewalPaymentId,
+        signature: renewalSignature,
       })
       .expect(201);
     expect(retry.body.idempotent).toBe(true);
