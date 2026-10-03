@@ -1,12 +1,23 @@
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
-RUN npm ci --include=dev
+RUN npm ci
+
+FROM deps AS build
+COPY . .
+RUN npm run build -w @crm-ai/api
+RUN npm prune --omit=dev
+
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
-COPY apps/api/drizzle ./apps/api/drizzle
-COPY apps/api/drizzle.config.ts ./apps/api/drizzle.config.ts
-COPY apps/api/src ./apps/api/src
-CMD ["npm", "run", "db:migrate", "-w", "@crm-ai/api"]
+WORKDIR /app
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/drizzle ./apps/api/drizzle
+USER node
+CMD ["node", "apps/api/dist/platform/database/migrate-runner.js"]

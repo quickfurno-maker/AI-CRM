@@ -92,10 +92,12 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Apply migrations
-        run: npm run db:migrate
+      - name: Build production migration runner
+        run: npm run build -w @crm-ai/api
+      - name: Apply migrations with production runner
+        run: node apps/api/dist/platform/database/migrate-runner.js
       - name: Prove migration idempotence
-        run: npm run db:migrate
+        run: node apps/api/dist/platform/database/migrate-runner.js
       - name: Verify PostgreSQL schema
         run: |
           node --input-type=module <<'NODE'
@@ -136,3 +138,8 @@ jobs:
         run: docker build -f apps/worker/Dockerfile -t crm-ai-worker:ci .
       - name: Build migration image
         run: docker build -f apps/api/Dockerfile.migrate -t crm-ai-migration:ci .
+      - name: Verify migration image excludes dev tooling
+        run: |
+          docker run --rm crm-ai-migration:ci node -e "try { require.resolve('drizzle-kit'); console.error('drizzle-kit must not ship in the production migration image'); process.exit(1); } catch { console.log('production migration image excludes drizzle-kit'); }"
+      - name: Audit migration production dependencies
+        run: docker run --rm crm-ai-migration:ci npm audit --omit=dev --audit-level=high
