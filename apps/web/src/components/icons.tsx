@@ -128,3 +128,13 @@ export const ArrowUpRight: IconComponent = (props) => (
 export const Check: IconComponent = (props) => (
   <Icon {...props}><path d="m5 12 4 4L19 6"/></Icon>
 );
+
+export const Bell: IconComponent = (props) => (
+  <Icon {...props}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></Icon>
+);
+export const LifeBuoy: IconComponent = (props) => (
+  <Icon {...props}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="m5.6 5.6 4.3 4.3M14.1 14.1l4.3 4.3M18.4 5.6l-4.3 4.3M9.9 14.1l-4.3 4.3"/></Icon>
+);
+export const Database: IconComponent = (props) => (
+  <Icon {...props}><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></Icon>
+);
