@@ -152,7 +152,9 @@ const publicPrefixes = [
 ];
 
 function routeMatches(pathname: string, href: string) {
-  if (href === '/dashboard') return pathname === href;
+  if (href === '/dashboard' || href === '/provider') {
+    return pathname === href;
+  }
   return pathname === href || pathname.startsWith(href + '/');
 }
 
