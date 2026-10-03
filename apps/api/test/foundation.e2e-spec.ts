@@ -4379,4 +4379,205 @@ describe('Phase 1 SaaS foundation', () => {
     expect(dunningRows.rows[0].status).toBe('RECOVERED');
   });
 
+
+  it('certifies search onboarding notifications support governance and audit evidence', async () => {
+    const tenant = await register({
+      email: 'experience-owner@example.com',
+      organizationName: 'Experience Tenant',
+      organizationSlug: 'experience-tenant',
+    });
+    const other = await register({
+      email: 'experience-other@example.com',
+      organizationName: 'Experience Other',
+      organizationSlug: 'experience-other',
+    });
+    const auth = {
+      authorization: `Bearer ${tenant.tokens.accessToken}`,
+    };
+    const otherAuth = {
+      authorization: `Bearer ${other.tokens.accessToken}`,
+    };
+
+    const onboardingBefore = await request(app.getHttpServer())
+      .get('/v1/platform/onboarding')
+      .set(auth)
+      .expect(200);
+    expect(onboardingBefore.body.progress.requiredTotal).toBeGreaterThan(1);
+    expect(onboardingBefore.body.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'workspace',
+          done: true,
+        }),
+        expect.objectContaining({
+          key: 'crm',
+          done: false,
+        }),
+      ]),
+    );
+
+    const contact = await request(app.getHttpServer())
+      .post('/v1/crm/contacts')
+      .set(auth)
+      .send({
+        displayName: 'Platform Search Client',
+        email: 'platform-search@example.com',
+        phone: '9898989898',
+        source: 'WEBSITE',
+      })
+      .expect(201);
+
+    const search = await request(app.getHttpServer())
+      .get('/v1/platform/search?q=Platform%20Search&limit=12')
+      .set(auth)
+      .expect(200);
+    expect(search.body.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'CONTACT',
+          id: contact.body.id,
+          title: 'Platform Search Client',
+        }),
+      ]),
+    );
+
+    const isolatedSearch = await request(app.getHttpServer())
+      .get('/v1/platform/search?q=Platform%20Search&limit=12')
+      .set(otherAuth)
+      .expect(200);
+    expect(isolatedSearch.body.results).toHaveLength(0);
+
+    const onboardingAfter = await request(app.getHttpServer())
+      .get('/v1/platform/onboarding')
+      .set(auth)
+      .expect(200);
+    expect(
+      onboardingAfter.body.steps.find(
+        (step: { key: string }) => step.key === 'crm',
+      ).done,
+    ).toBe(true);
+
+    const ticket = await request(app.getHttpServer())
+      .post('/v1/platform/support/tickets')
+      .set(auth)
+      .send({
+        category: 'PRODUCT',
+        priority: 'HIGH',
+        subject: 'Platform experience certification',
+        description:
+          'Certify tenant support ticket creation and conversation isolation.',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/platform/support/tickets/${ticket.body.id as string}/comments`,
+      )
+      .set(auth)
+      .send({ body: 'Customer follow-up for certification.' })
+      .expect(201);
+
+    const ticketDetail = await request(app.getHttpServer())
+      .get(
+        `/v1/platform/support/tickets/${ticket.body.id as string}`,
+      )
+      .set(auth)
+      .expect(200);
+    expect(ticketDetail.body.ticket.organizationId).toBe(
+      tenant.organization.id,
+    );
+    expect(ticketDetail.body.comments).toHaveLength(1);
+
+    await request(app.getHttpServer())
+      .get(
+        `/v1/platform/support/tickets/${ticket.body.id as string}`,
+      )
+      .set(otherAuth)
+      .expect(404);
+
+    const policy = await request(app.getHttpServer())
+      .get('/v1/platform/governance/policy')
+      .set(auth)
+      .expect(200);
+    expect(policy.body.legalHold).toBe(false);
+
+    const policyUpdate = await request(app.getHttpServer())
+      .put('/v1/platform/governance/policy')
+      .set(auth)
+      .send({
+        auditRetentionDays: 730,
+        notificationRetentionDays: 180,
+        supportRetentionDays: 730,
+        aiTraceRetentionDays: 180,
+        deletionGraceDays: 21,
+        legalHold: false,
+      })
+      .expect(200);
+    expect(policyUpdate.body.deletionGraceDays).toBe(21);
+
+    const governance = await request(app.getHttpServer())
+      .post('/v1/platform/governance/requests')
+      .set(auth)
+      .send({
+        requestType: 'EXPORT',
+        reason: 'E2E tenant data export certification',
+      })
+      .expect(201);
+    expect(governance.body.status).toBe('PENDING_REVIEW');
+    expect(governance.body.manifest.counts.contacts).toBe(1);
+    expect(governance.body.manifest.counts.supportTickets).toBe(1);
+
+    const membershipRows = (await pool.query(
+      `select id from organization_members
+       where organization_id = '${tenant.organization.id}'
+       order by created_at
+       limit 1`,
+    )) as { rows: Array<{ id: string }> };
+    const notificationId = randomUUID();
+    await pool.query(
+      `insert into tenant_notifications (
+         id, organization_id, membership_id, category,
+         severity, title, body, action_href, status,
+         dedupe_key
+       ) values (
+         '${notificationId}', '${tenant.organization.id}',
+         '${membershipRows.rows[0].id}', 'OPERATIONS',
+         'WARNING', 'Certification notification',
+         'A governed operational notification for E2E.',
+         '/dashboard', 'UNREAD', 'experience-e2e-notification'
+       )`,
+    );
+
+    const notifications = await request(app.getHttpServer())
+      .get('/v1/platform/notifications')
+      .set(auth)
+      .expect(200);
+    expect(notifications.body.unreadCount).toBeGreaterThan(0);
+    expect(notifications.body.notifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: notificationId,
+          status: 'UNREAD',
+        }),
+      ]),
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        `/v1/platform/notifications/${notificationId}/read`,
+      )
+      .set(auth)
+      .expect(201);
+
+    const auditExport = await request(app.getHttpServer())
+      .get('/v1/audit/export?limit=5000')
+      .set(auth)
+      .expect(200);
+    expect(auditExport.body.organizationId).toBe(
+      tenant.organization.id,
+    );
+    expect(auditExport.body.integrity.algorithm).toBe('SHA-256');
+    expect(auditExport.body.recordCount).toBeGreaterThan(0);
+  });
+
 });
