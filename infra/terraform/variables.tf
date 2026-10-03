@@ -94,6 +94,37 @@ variable "ai_transport_mode" {
   }
 }
 
+variable "meta_graph_version" {
+  type    = string
+  default = ""
+}
+
+variable "meta_app_id" {
+  type    = string
+  default = ""
+}
+
+variable "meta_embedded_signup_config_id" {
+  type    = string
+  default = ""
+}
+
+variable "meta_provider_business_id" {
+  type    = string
+  default = ""
+}
+
+variable "meta_system_user_id" {
+  type    = string
+  default = ""
+}
+
+variable "alert_email" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
 variable "openai_api_key_secret_arn" {
   type      = string
   default   = null
