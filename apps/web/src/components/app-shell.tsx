@@ -222,7 +222,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session) return;
-    void loadNotifications();
+    const timer = globalThis.setTimeout(() => {
+      void loadNotifications();
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, [loadNotifications, session]);
 
   useEffect(() => {
@@ -256,11 +259,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [paletteOpen]);
 
   useEffect(() => {
-    if (!paletteOpen || query.trim().length < 2) {
-      setRemoteResults([]);
-      setSearching(false);
-      return;
-    }
+    if (!paletteOpen || query.trim().length < 2) return;
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => {
       setSearching(true);
