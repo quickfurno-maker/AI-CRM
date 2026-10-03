@@ -12,6 +12,7 @@ import { RefreshDto } from './dto/refresh.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { Public } from './public.decorator.js';
 import { AuthService } from './auth.service.js';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import type { Principal } from './auth.types.js';
 
 @Controller('auth')
@@ -19,6 +20,7 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @RateLimit({ limit: 5, windowSeconds: 60, scope: 'IP' })
   @Post('register')
   register(
     @Body() dto: RegisterDto,
@@ -34,6 +36,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 10, windowSeconds: 60, scope: 'IP' })
   @Post('login')
   login(
     @Body() dto: LoginDto,
@@ -49,6 +52,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 30, windowSeconds: 60, scope: 'IP' })
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto);
