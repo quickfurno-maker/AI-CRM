@@ -29,6 +29,7 @@ export const saasCustomerBillingProfiles = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     organizationId: uuid('organization_id')
       .notNull()
+      .unique('saas_customer_billing_profiles_org_uq')
       .references(() => organizations.id, { onDelete: 'cascade' }),
     legalName: varchar('legal_name', { length: 240 }).notNull(),
     billingEmail: varchar('billing_email', { length: 320 }).notNull(),
@@ -44,11 +45,6 @@ export const saasCustomerBillingProfiles = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [
-    uniqueIndex('saas_customer_billing_profiles_org_uq').on(
-      table.organizationId,
-    ),
-  ],
 );
 
 export const saasPlanPrices = pgTable(

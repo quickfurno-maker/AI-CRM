@@ -504,6 +504,17 @@ export class TeamAdminService {
     };
   }
 
+  listPermissions() {
+    return this.database.db
+      .select({
+        id: permissions.id,
+        key: permissions.key,
+        description: permissions.description,
+      })
+      .from(permissions)
+      .orderBy(permissions.key);
+  }
+
   async listRoles(principal: Principal) {
     const [roleRows, grants] = await Promise.all([
       this.database.db

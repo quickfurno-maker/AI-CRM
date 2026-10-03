@@ -128,6 +128,12 @@ export class FailCheckoutDto {
   @IsOptional() @IsString() @MaxLength(240) providerAttemptId?: string;
 }
 
+export class ReconcileInvoicePaymentDto {
+  @IsString() @MinLength(1) @MaxLength(40) provider: string;
+  @IsString() @MinLength(1) @MaxLength(240) providerPaymentId: string;
+  @IsOptional() @IsString() @MaxLength(240) providerAttemptId?: string;
+}
+
 export class RecordUsageDto {
   @IsUUID() organizationId: string;
   @IsString() @MinLength(1) @MaxLength(160) meterKey: string;

@@ -61,6 +61,71 @@ function hasUnresolvedVariables(components: unknown[]) {
   return JSON.stringify(components).includes('{{');
 }
 
+async function assertCommercialUsage(
+  pool: Pool,
+  organizationId: string,
+  meterKey: string,
+  quantity: number,
+) {
+  const context = await pool.query<{
+    status: string;
+    period_start: Date;
+    period_end: Date;
+    included_quantity: string | null;
+    enforcement_mode: string | null;
+  }>(
+    `select
+       subscription.status,
+       coalesce(subscription.current_period_start, subscription.created_at) as period_start,
+       coalesce(subscription.current_period_end, now() + interval '31 days') as period_end,
+       meter.included_quantity,
+       meter.enforcement_mode
+     from subscriptions subscription
+     left join saas_meter_prices meter
+       on meter.plan_id = subscription.plan_id
+      and meter.meter_key = $2
+      and meter.currency = subscription.currency
+      and meter.is_active = true
+     where subscription.organization_id = $1
+     limit 1`,
+    [organizationId, meterKey],
+  );
+  const row = context.rows[0];
+  if (!row) {
+    throw new ProviderSendError('Subscription was not found.', false);
+  }
+  if (!['TRIALING', 'ACTIVE', 'PAST_DUE'].includes(row.status)) {
+    throw new ProviderSendError(
+      'Subscription is not active for metered usage.',
+      false,
+    );
+  }
+  if (row.included_quantity === null || row.enforcement_mode === null) {
+    return;
+  }
+
+  const used = await pool.query<{ quantity: string }>(
+    `select coalesce(sum(quantity), 0)::text as quantity
+     from saas_usage_ledger
+     where organization_id = $1
+       and meter_key = $2
+       and occurred_at >= $3
+       and occurred_at < $4`,
+    [organizationId, meterKey, row.period_start, row.period_end],
+  );
+  const projected =
+    Number(used.rows[0]?.quantity ?? 0) + quantity;
+  if (
+    projected > Number(row.included_quantity) &&
+    ['HARD_LIMIT', 'THROTTLE'].includes(row.enforcement_mode)
+  ) {
+    throw new ProviderSendError(
+      `${meterKey} allowance has been reached for this billing period.`,
+      false,
+    );
+  }
+}
+
 async function hasConsent(pool: Pool, job: CampaignRecipientJob) {
   const purpose =
     job.template_category === 'MARKETING' ? 'MARKETING' : 'SERVICE';
@@ -266,6 +331,31 @@ async function persistSuccess(
     );
 
     await client.query(
+      `insert into saas_usage_ledger (
+         organization_id,
+         meter_key,
+         quantity,
+         unit,
+         source_type,
+         source_id,
+         idempotency_key,
+         metadata
+       ) values ($1, 'whatsapp.messages', 1, 'message',
+                 'WHATSAPP_CAMPAIGN', $2, $3, $4::jsonb)
+       on conflict (organization_id, idempotency_key) do nothing`,
+      [
+        job.organization_id,
+        message.rows[0].id,
+        'whatsapp-message:' + message.rows[0].id,
+        JSON.stringify({
+          campaignId: job.campaign_id,
+          recipientId: job.recipient_id,
+          templateId: job.template_id,
+        }),
+      ],
+    );
+
+    await client.query(
       `update communication_conversations
        set last_outbound_at = now(),
            last_message_at = now(),
@@ -435,6 +525,12 @@ export async function dispatchCampaignJob(
       return;
     }
 
+    await assertCommercialUsage(
+      pool,
+      job.organization_id,
+      'whatsapp.messages',
+      1,
+    );
     const result = await sendTemplate(job);
     await persistSuccess(pool, job, result);
   } catch (error) {

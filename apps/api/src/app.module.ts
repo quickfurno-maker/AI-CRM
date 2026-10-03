@@ -15,6 +15,7 @@ import { EnterpriseSecurityGuard } from './modules/enterprise/enterprise-securit
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { StaffModule } from './modules/staff/staff.module.js';
+import { SaasCommercialModule } from './modules/saas-commercial/saas-commercial.module.js';
 import { TeamAdminModule } from './modules/team-admin/team-admin.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
 import { validateEnvironment } from './config/environment.js';
@@ -59,6 +60,7 @@ import { SecurityModule } from './platform/security/security.module.js';
     RealEstateModule,
     AttendanceModule,
     StaffModule,
+    SaasCommercialModule,
     TeamAdminModule,
     OrganizationsModule,
     PlatformAdminModule,

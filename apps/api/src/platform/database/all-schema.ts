@@ -10,4 +10,5 @@ export * from '../../modules/developer/developer.schema.js';
 export * from '../../modules/enterprise/enterprise.schema.js';
 export * from '../../modules/staff/staff.schema.js';
 export * from '../../modules/team-admin/team-admin.schema.js';
+export * from '../../modules/saas-commercial/saas-commercial.schema.js';
 export * from '../../extensions/attendance/attendance.schema.js';

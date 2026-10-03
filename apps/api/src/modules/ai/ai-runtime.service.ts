@@ -19,6 +19,7 @@ import {
   aiToolExecutions,
   aiUsageRecords,
 } from './ai.schema.js';
+import { SaasUsageMeterService } from '../saas-commercial/saas-usage-meter.service.js';
 import { AiManagementService } from './ai-management.service.js';
 import { AiProviderGatewayService } from './ai-provider-gateway.service.js';
 import { AiProvisioningService } from './ai-provisioning.service.js';
@@ -39,6 +40,7 @@ export class AiRuntimeService {
     private readonly provider: AiProviderGatewayService,
     private readonly provisioning: AiProvisioningService,
     private readonly tools: AiToolGatewayService,
+    private readonly commercialUsage: SaasUsageMeterService,
   ) {}
 
   listRuns(principal: Principal, limit = 100) {
@@ -73,6 +75,11 @@ export class AiRuntimeService {
     const version = await this.management.getActiveVersion(
       principal,
       agentId,
+    );
+    await this.commercialUsage.assertCanConsume(
+      principal.organizationId,
+      'ai.agent_runs',
+      1,
     );
 
     const conversation = await this.provisioning.assertConversation(
@@ -216,6 +223,54 @@ export class AiRuntimeService {
           },
         });
       });
+
+      try {
+        await Promise.all([
+          this.commercialUsage.record({
+            organizationId: principal.organizationId,
+            meterKey: 'ai.agent_runs',
+            quantity: 1,
+            sourceType: 'AI_RUN',
+            sourceId: runRecord.id,
+            idempotencyKey: 'ai-run:' + runRecord.id + ':run',
+            metadata: { model, agentId },
+            enforce: false,
+          }),
+          this.commercialUsage.record({
+            organizationId: principal.organizationId,
+            meterKey: 'openai.tokens',
+            quantity: result.totalTokens,
+            unit: 'token',
+            sourceType: 'AI_RUN',
+            sourceId: runRecord.id,
+            idempotencyKey: 'ai-run:' + runRecord.id + ':tokens',
+            metadata: {
+              model,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+              estimatedCostUsd,
+            },
+            enforce: false,
+          }),
+        ]);
+      } catch (usageError) {
+        await this.database.db
+          .insert(outboxEvents)
+          .values({
+            organizationId: principal.organizationId,
+            eventType: 'saas.usage.reconciliation_required.v1',
+            aggregateType: 'ai_run',
+            aggregateId: runRecord.id,
+            payload: {
+              meterKeys: ['ai.agent_runs', 'openai.tokens'],
+              error:
+                usageError instanceof Error
+                  ? usageError.message.slice(0, 1000)
+                  : String(usageError).slice(0, 1000),
+            },
+          })
+          .catch(() => undefined);
+      }
 
       return this.getRun(principal, runRecord.id);
     } catch (error) {

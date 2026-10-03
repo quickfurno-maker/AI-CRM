@@ -9,6 +9,7 @@ import {
   processCrmDataJob,
   resetStaleCrmDataJobs,
 } from './crm-data-jobs.js';
+import { runSaasCommercialMaintenance } from './saas-commercial-jobs.js';
 import {
   applyEnterpriseRetention,
   claimWebhookBatch,
@@ -269,8 +270,23 @@ async function runLoop() {
   await resetStaleWebhookClaims(pool);
   await resetStaleCrmDataJobs(pool);
   let lastRetentionRun = 0;
+  let lastCommercialMaintenanceRun = 0;
 
   while (!stopping) {
+    if (
+      Date.now() - lastCommercialMaintenanceRun >
+      60 * 1000
+    ) {
+      try {
+        await runSaasCommercialMaintenance(pool);
+      } catch (error) {
+        console.error(
+          '[worker] SaaS commercial maintenance failed',
+          error,
+        );
+      }
+      lastCommercialMaintenanceRun = Date.now();
+    }
     if (Date.now() - lastRetentionRun > 60 * 60 * 1000) {
       try {
         await applyEnterpriseRetention(pool);
@@ -366,6 +382,7 @@ async function bootstrap() {
   console.log('[worker] developer webhook dispatcher active');
   console.log('[worker] CRM import/export processor active');
   console.log('[worker] enterprise audit retention active');
+  console.log('[worker] SaaS commercial lifecycle maintenance active');
   await runLoop();
   await redis.quit();
   await pool.end();

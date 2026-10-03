@@ -10,11 +10,13 @@ import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   developerOauthClients,
   developerOauthTokens,
 } from '../../modules/developer/developer.schema.js';
 import { hashCredential } from '../../modules/developer/developer-credentials.js';
+import { SaasUsageMeterService } from '../../modules/saas-commercial/saas-usage-meter.service.js';
 import { memberSeatAssignments } from '../../modules/staff/staff.schema.js';
 import { DatabaseService } from '../database/database.service.js';
 import {
@@ -38,6 +40,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly config: ConfigService,
     private readonly database: DatabaseService,
     private readonly entitlements: EntitlementsService,
+    private readonly commercialUsage: SaasUsageMeterService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -78,6 +81,27 @@ export class JwtAuthGuard implements CanActivate {
       request.principal = externalToken.startsWith('crmkey_')
         ? await this.authenticateApiKey(externalToken)
         : await this.authenticateOauthToken(externalToken);
+
+      const requestIdHeader = request.headers['x-request-id'];
+      const requestId =
+        typeof requestIdHeader === 'string'
+          ? requestIdHeader
+          : Array.isArray(requestIdHeader)
+            ? requestIdHeader[0]
+            : randomUUID();
+      await this.commercialUsage.record({
+        organizationId: request.principal.organizationId,
+        meterKey: 'api.requests',
+        quantity: 1,
+        sourceType: request.principal.authType ?? 'EXTERNAL_API',
+        sourceId:
+          request.principal.actorId ?? request.principal.sessionId,
+        idempotencyKey: 'api-request:' + requestId,
+        metadata: {
+          permission: requiredPermission,
+          authType: request.principal.authType,
+        },
+      });
       return true;
     }
 
