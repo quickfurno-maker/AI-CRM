@@ -14,4 +14,14 @@ export class AuditController {
     const parsed = Number.parseInt(limit ?? '50', 10);
     return this.audit.list(principal.organizationId, Number.isFinite(parsed) ? parsed : 50);
   }
+
+  @Get('export')
+  @RequirePermission('audit.export')
+  export(@CurrentPrincipal() principal: Principal, @Query('limit') limit?: string) {
+    const parsed = Number.parseInt(limit ?? '5000', 10);
+    return this.audit.export(
+      principal.organizationId,
+      Number.isFinite(parsed) ? parsed : 5000,
+    );
+  }
 }
