@@ -32,6 +32,8 @@ import { OutboxModule } from './platform/outbox/outbox.module.js';
 import { PermissionsGuard } from './platform/permissions/permissions.guard.js';
 import { PermissionsModule } from './platform/permissions/permissions.module.js';
 import { SecurityModule } from './platform/security/security.module.js';
+import { RateLimitGuard } from './platform/rate-limit/rate-limit.guard.js';
+import { RateLimitModule } from './platform/rate-limit/rate-limit.module.js';
 
 @Module({
   imports: [
@@ -45,6 +47,7 @@ import { SecurityModule } from './platform/security/security.module.js';
     EntitlementsModule,
     AuditModule,
     SecurityModule,
+    RateLimitModule,
     FeatureFlagsModule,
     ExtensionsModule,
     OutboxModule,
@@ -69,6 +72,7 @@ import { SecurityModule } from './platform/security/security.module.js';
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: EnterpriseSecurityGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: EntitlementGuard },
