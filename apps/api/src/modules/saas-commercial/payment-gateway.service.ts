@@ -954,74 +954,98 @@ export class PaymentGatewayService {
     }
     this.assertPaymentMatches(intent, payment);
 
-    const [paidIntent] = await this.database.db
+    await this.database.db
       .update(saasPaymentIntents)
       .set({
-        status: 'PAID',
+        status: 'SETTLING',
         providerPaymentId: payment.id,
         failureCode: null,
         failureReason: null,
-        completedAt: new Date(),
         metadata: {
           ...(intent.metadata ?? {}),
           verifiedPayment: payment.raw,
         },
         updatedAt: new Date(),
       })
-      .where(eq(saasPaymentIntents.id, intent.id))
-      .returning();
+      .where(eq(saasPaymentIntents.id, intent.id));
 
-    let commercialResult: unknown;
-    if (intent.checkoutSessionId) {
-      commercialResult =
-        await this.commercial.completeCheckoutTrusted(
-          intent.checkoutSessionId,
-          {
-            provider: intent.provider,
-            providerPaymentId: payment.id,
-            providerSessionId:
-              intent.providerOrderId ?? undefined,
-          },
+    try {
+      let commercialResult: unknown;
+      if (intent.checkoutSessionId) {
+        commercialResult =
+          await this.commercial.completeCheckoutTrusted(
+            intent.checkoutSessionId,
+            {
+              provider: intent.provider,
+              providerPaymentId: payment.id,
+              providerSessionId:
+                intent.providerOrderId ?? undefined,
+            },
+          );
+      } else if (intent.invoiceId) {
+        commercialResult =
+          await this.commercial.reconcileInvoicePaymentTrusted(
+            intent.invoiceId,
+            {
+              provider: intent.provider,
+              providerPaymentId: payment.id,
+              providerAttemptId:
+                intent.providerOrderId ?? undefined,
+            },
+          );
+      } else {
+        throw new ConflictException(
+          'Payment intent has no settlement target.',
         );
-    } else if (intent.invoiceId) {
-      commercialResult =
-        await this.commercial.reconcileInvoicePaymentTrusted(
-          intent.invoiceId,
-          {
-            provider: intent.provider,
-            providerPaymentId: payment.id,
-            providerAttemptId:
-              intent.providerOrderId ?? undefined,
-          },
-        );
-    } else {
-      throw new ConflictException(
-        'Payment intent has no settlement target.',
-      );
+      }
+
+      const [paidIntent] = await this.database.db
+        .update(saasPaymentIntents)
+        .set({
+          status: 'PAID',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(saasPaymentIntents.id, intent.id))
+        .returning();
+
+      await this.database.db.insert(outboxEvents).values({
+        organizationId: intent.organizationId,
+        eventType: 'saas.payment.settled.v1',
+        aggregateType: 'saas_payment_intent',
+        aggregateId: intent.id,
+        payload: {
+          paymentIntentId: intent.id,
+          provider: intent.provider,
+          providerOrderId: intent.providerOrderId,
+          providerPaymentId: payment.id,
+          checkoutSessionId: intent.checkoutSessionId,
+          invoiceId: intent.invoiceId,
+          amount: intent.amount,
+          currency: intent.currency,
+        },
+      });
+
+      return {
+        paymentIntent: paidIntent,
+        commercialResult,
+        idempotent: false,
+      };
+    } catch (error) {
+      await this.database.db
+        .update(saasPaymentIntents)
+        .set({
+          status: 'PENDING',
+          failureCode: 'INTERNAL_SETTLEMENT_RETRY',
+          failureReason:
+            error instanceof Error
+              ? error.message.slice(0, 4000)
+              : String(error).slice(0, 4000),
+          updatedAt: new Date(),
+        })
+        .where(eq(saasPaymentIntents.id, intent.id));
+      throw error;
     }
-
-    await this.database.db.insert(outboxEvents).values({
-      organizationId: intent.organizationId,
-      eventType: 'saas.payment.settled.v1',
-      aggregateType: 'saas_payment_intent',
-      aggregateId: intent.id,
-      payload: {
-        paymentIntentId: intent.id,
-        provider: intent.provider,
-        providerOrderId: intent.providerOrderId,
-        providerPaymentId: payment.id,
-        checkoutSessionId: intent.checkoutSessionId,
-        invoiceId: intent.invoiceId,
-        amount: intent.amount,
-        currency: intent.currency,
-      },
-    });
-
-    return {
-      paymentIntent: paidIntent,
-      commercialResult,
-      idempotent: false,
-    };
   }
 
   private assertPaymentMatches(
