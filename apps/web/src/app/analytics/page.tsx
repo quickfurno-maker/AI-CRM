@@ -138,10 +138,6 @@ export default function AnalyticsPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  if (!data && !error) {
-    return <WorkspaceLoading label="Analytics" />;
-  }
-
   const maxDaily = useMemo(
     () =>
       Math.max(
@@ -152,6 +148,10 @@ export default function AnalyticsPage() {
       ),
     [data],
   );
+
+  if (!data && !error) {
+    return <WorkspaceLoading label="Analytics" />;
+  }
 
   return (
     <main className="min-h-screen bg-[#07090d] text-zinc-100">
