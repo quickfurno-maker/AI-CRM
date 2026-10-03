@@ -8,8 +8,10 @@ Do not mark production launch complete from code/CI evidence alone.
 
 ## 1. Release source
 
-Release branch:
-`feat/phase-10-11-internal-completion`
+Release source:
+`main`
+
+Phase 10/11 was merged through PR #2. Production deployments must use an immutable `main` commit that has passed the required CI gates.
 
 Before deployment:
 - merge only after CI is green;
