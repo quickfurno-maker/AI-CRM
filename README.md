@@ -6,12 +6,15 @@ Industry-neutral, multi-tenant SaaS for CRM, WhatsApp, governed AI agents, autom
 
 **Internal product implementation through Phase 11 is complete and merged to `main`.**
 
-Phase 10/11 merge PR: **#2**
+Major internal release merges:
+- Phase 10/11 foundation + commercial maturity: **PR #2**
+- Premium UI/UX + flagship public SaaS website: **PR #4**
+- Complete SaaS payment gateway runtime: **PR #5**
 
-Certified runtime baseline:
-`b6426169e9390d39ab0f4cfb890e1afe37cb3ac2`
+Current runtime baseline:
+`fb541c0c785dea3a65a89a70a3b7e072a9a80427`
 
-This includes the post-merge production migration-image hardening: production migrations run through compiled `drizzle-orm`, the migration runtime is pruned to production dependencies, and CI proves dev-only `drizzle-kit` is absent. Documentation-only synchronization commits after this baseline do not change runtime behavior.
+This baseline includes the hardened production migration image, premium product/public-site release, and the internally complete SaaS payment-gateway runtime. Payment live mode remains disabled by default until production Razorpay merchant credentials and webhook registration are intentionally activated.
 
 CI certification:
 - TypeScript: API / web / worker — PASS
