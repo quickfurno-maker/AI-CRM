@@ -737,7 +737,14 @@ export class PlatformExperienceService {
         deletionGraceDays: before.deletionGraceDays,
         legalHold: before.legalHold,
       },
-      after: dto,
+      after: {
+        auditRetentionDays: dto.auditRetentionDays,
+        notificationRetentionDays: dto.notificationRetentionDays,
+        supportRetentionDays: dto.supportRetentionDays,
+        aiTraceRetentionDays: dto.aiTraceRetentionDays,
+        deletionGraceDays: dto.deletionGraceDays,
+        legalHold: dto.legalHold,
+      },
     });
     return updated;
   }
