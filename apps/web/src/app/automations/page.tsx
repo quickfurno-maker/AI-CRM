@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import {
   Background,
   Controls,
@@ -214,6 +215,7 @@ export default function AutomationsPage() {
   const [edgePriority, setEdgePriority] = useState('0');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [runDetail, setRunDetail] = useState<RunDetail>();
   const [versionComparison, setVersionComparison] = useState<{
     baseVersion: number;
@@ -257,6 +259,8 @@ export default function AutomationsPage() {
           ? reason.message
           : 'Unable to load automation control plane.',
       );
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -879,6 +883,10 @@ export default function AutomationsPage() {
     }),
     [approvals, runs, workflows],
   );
+  if (loading) {
+    return <WorkspaceLoading label="Automation Control Plane" />;
+  }
+
   return (
     <main className="min-h-screen bg-[#07090d] text-zinc-100">
       <div className="mx-auto grid min-h-screen max-w-[2000px] lg:grid-cols-[240px_1fr]">
@@ -954,7 +962,7 @@ export default function AutomationsPage() {
           </header>
 
           {error ? (
-            <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           ) : null}
@@ -966,10 +974,16 @@ export default function AutomationsPage() {
             <Metric label="Pending approvals" value={metrics.approvals} />
           </div>
 
-          <div className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1">
+          <div
+            className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1"
+            role="tablist"
+            aria-label="Automation workspace views"
+          >
             {(['builder', 'runs', 'approvals'] as Tab[]).map((item) => (
               <button
                 key={item}
+                role="tab"
+                aria-selected={tab === item}
                 onClick={() => setTab(item)}
                 className={
                   'rounded-lg px-4 py-2 text-sm capitalize ' +
@@ -1274,7 +1288,7 @@ export default function AutomationsPage() {
                       selectedVersion?.status === 'DRAFT'
                     }
                     elementsSelectable
-                    className="bg-[#090c12]"
+                    className="premium-flow bg-[#090c12]"
                   >
                     <Background gap={24} size={1} />
                     <MiniMap pannable zoomable />

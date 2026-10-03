@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import {
   FormEvent,
   useCallback,
@@ -316,11 +317,7 @@ export default function TeamPage() {
   }
 
   if (!session) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#07090d] text-sm text-zinc-500">
-        Loading Team & Access…
-      </main>
-    );
+    return <WorkspaceLoading label="Team & Access" />;
   }
 
   return (

@@ -17,7 +17,8 @@
     "db:generate": "npm run db:generate -w @crm-ai/api",
     "db:migrate": "npm run db:migrate -w @crm-ai/api",
     "db:push": "npm run db:push -w @crm-ai/api",
-    "db:studio": "npm run db:studio -w @crm-ai/api"
+    "db:studio": "npm run db:studio -w @crm-ai/api",
+    "ui:quality": "node scripts/check-ui-quality.mjs"
   },
   "devDependencies": {
     "turbo": "^2.5.8",

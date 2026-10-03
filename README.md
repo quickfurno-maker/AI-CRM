@@ -89,6 +89,12 @@ Staff records are also separate from paid product access:
 
 ## Key application surfaces
 
+Public website:
+- `/` — flagship SaaS homepage
+- `/platform` — complete product capability overview
+- `/pricing` — live SaaS catalog + commercial model
+- `/security` — tenant isolation, AI governance and production security
+
 Tenant:
 - `/dashboard` — command center
 - `/crm` — CRM
@@ -158,6 +164,7 @@ Health: http://localhost:4000/v1/health
 ```powershell
 npm run typecheck
 npm run lint
+npm run ui:quality
 npm test
 npm run test:e2e
 npm run build
@@ -165,6 +172,7 @@ npm audit --omit=dev --audit-level=high
 ```
 
 CI also verifies:
+- premium UI/public-site regression requirements
 - migration execution and idempotence against PostgreSQL + pgvector
 - expected production schema
 - Terraform syntax/provider validation
@@ -200,6 +208,7 @@ See:
 - `docs/architecture/phase-10-production-readiness.md`
 - `docs/architecture/phase-11-saas-commercial-operations.md`
 - `docs/architecture/production-launch-runbook.md`
+- `docs/architecture/premium-ui-public-site.md`
 
 ## Non-negotiable security rule
 

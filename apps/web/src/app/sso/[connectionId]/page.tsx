@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { ArrowRight, LoaderCircle, ShieldCheck } from '@/components/icons';
 import { useState } from 'react';
+import { AuthShell } from '@/components/auth-shell';
 
 export default function SsoStartPage() {
   const params = useParams<{ connectionId: string }>();
@@ -38,27 +40,55 @@ export default function SsoStartPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#07090d] p-5 text-zinc-100">
-      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0d1017] p-8">
-        <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
-          Business OS · Enterprise SSO
+    <AuthShell
+      eyebrow="Enterprise identity"
+      title="Continue with SSO."
+      description="Use your organization identity provider. The authorization-code flow uses PKCE and your provider password is never sent to Business OS."
+      footer={
+        <>
+          Prefer password sign-in? <Link href="/login">Use email and password</Link>
+        </>
+      }
+    >
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+        <div className="flex items-start gap-3">
+          <span className="grid h-9 w-9 flex-none place-items-center rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] text-emerald-300">
+            <ShieldCheck size={17} />
+          </span>
+          <div>
+            <div className="text-xs font-semibold text-zinc-200">
+              Secure redirect
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-zinc-600">
+              You will leave Business OS briefly to authenticate with your approved
+              identity provider, then return to your tenant workspace.
+            </p>
+          </div>
         </div>
-        <h1 className="mt-3 text-3xl font-semibold">Continue with your identity provider</h1>
-        <p className="mt-3 text-sm leading-6 text-zinc-500">
-          CRM-AI will use an authorization-code flow with PKCE. Your provider password is never sent to CRM-AI.
-        </p>
-        {error ? <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200">{error}</div> : null}
-        <button
-          disabled={busy}
-          onClick={() => void begin()}
-          className="mt-6 h-11 w-full rounded-xl bg-white text-sm font-semibold text-zinc-950 disabled:opacity-50"
-        >
-          {busy ? 'Redirecting…' : 'Continue with SSO'}
-        </button>
-        <Link href="/login" className="mt-4 block text-center text-xs text-zinc-500">
-          Use password sign-in instead
-        </Link>
       </div>
-    </main>
+
+      <div className="mt-4" aria-live="polite">
+        {error ? <div className="auth-error">{error}</div> : null}
+      </div>
+
+      <button
+        disabled={busy}
+        onClick={() => void begin()}
+        className="auth-primary mt-4"
+        type="button"
+      >
+        {busy ? (
+          <>
+            <LoaderCircle size={16} className="animate-spin" />
+            Redirecting securely…
+          </>
+        ) : (
+          <>
+            Continue with identity provider
+            <ArrowRight size={15} />
+          </>
+        )}
+      </button>
+    </AuthShell>
   );
 }

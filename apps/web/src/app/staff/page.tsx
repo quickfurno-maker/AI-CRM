@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type SessionData = {
@@ -224,11 +225,7 @@ export default function StaffPage() {
   }
 
   if (!session || !summary) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#07090d] text-sm text-zinc-500">
-        Loading Staff & Access…
-      </main>
-    );
+    return <WorkspaceLoading label="Staff & Seats" />;
   }
 
   const fullLimit = summary.seats.limits.FULL;

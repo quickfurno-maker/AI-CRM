@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { useCallback, useEffect, useState } from 'react';
 
 type Item = {
@@ -97,6 +98,10 @@ export default function MarketplacePage() {
     }
   }
 
+  if (enabled === undefined) {
+    return <WorkspaceLoading label="Marketplace" />;
+  }
+
   return (
     <main className="min-h-screen bg-[#07090d] p-4 text-zinc-100 sm:p-7 lg:p-10">
       <div className="mx-auto max-w-[1400px]">
@@ -114,7 +119,7 @@ export default function MarketplacePage() {
           </div>
         </header>
 
-        {error ? <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
+        {error ? <div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
         {enabled === false ? (
           <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-sm text-amber-200">
             Marketplace browsing is available, but tenant installation is disabled until your provider enables <code>marketplace.enabled</code>.

@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Search } from '@/components/icons';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Contact = {
@@ -126,6 +128,8 @@ export default function CrmPage() {
   const [dealPipeline, setDealPipeline] = useState<Pipeline>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -156,6 +160,8 @@ export default function CrmPage() {
         return;
       }
       setError(reason instanceof Error ? reason.message : 'Unable to load CRM.');
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -169,6 +175,94 @@ export default function CrmPage() {
   const contactMap = useMemo(
     () => new Map(contacts.map((contact) => [contact.id, contact.displayName])),
     [contacts],
+  );
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleContacts = useMemo(
+    () =>
+      normalizedQuery
+        ? contacts.filter((contact) =>
+            [contact.displayName, contact.email, contact.phone, contact.source]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : contacts,
+    [contacts, normalizedQuery],
+  );
+  const visibleCompanies = useMemo(
+    () =>
+      normalizedQuery
+        ? companies.filter((company) =>
+            [company.name, company.domain, company.industry]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : companies,
+    [companies, normalizedQuery],
+  );
+  const visibleLeads = useMemo(
+    () =>
+      normalizedQuery
+        ? leads.filter((lead) =>
+            [
+              lead.title,
+              lead.status,
+              lead.temperature,
+              lead.contactId ? contactMap.get(lead.contactId) : undefined,
+            ]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : leads,
+    [contactMap, leads, normalizedQuery],
+  );
+  const visibleDeals = useMemo(
+    () =>
+      normalizedQuery
+        ? deals.filter((deal) =>
+            [
+              deal.name,
+              deal.status,
+              deal.contactId ? contactMap.get(deal.contactId) : undefined,
+            ]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : deals,
+    [contactMap, deals, normalizedQuery],
+  );
+  const visibleTasks = useMemo(
+    () =>
+      normalizedQuery
+        ? tasks.filter((task) =>
+            [task.title, task.status, task.priority]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : tasks,
+    [normalizedQuery, tasks],
+  );
+  const visibleAppointments = useMemo(
+    () =>
+      normalizedQuery
+        ? appointments.filter((appointment) =>
+            [appointment.title, appointment.status, appointment.location]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : appointments,
+    [appointments, normalizedQuery],
+  );
+  const visibleActivities = useMemo(
+    () =>
+      normalizedQuery
+        ? activities.filter((activity) =>
+            [activity.type, activity.direction, activity.subject, activity.body]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+          )
+        : activities,
+    [activities, normalizedQuery],
   );
   async function submit(
     event: FormEvent<HTMLFormElement>,
@@ -217,6 +311,10 @@ export default function CrmPage() {
     ['Open Tasks', tasks.filter((task) => task.status !== 'DONE').length],
   ];
 
+  if (loading) {
+    return <WorkspaceLoading label="CRM" />;
+  }
+
   return (
     <main className="min-h-screen bg-[#07090d] text-zinc-100">
       <div className="mx-auto grid min-h-screen max-w-[1800px] lg:grid-cols-[240px_1fr]">
@@ -253,13 +351,31 @@ export default function CrmPage() {
                 Contacts, companies, pipelines, deals and follow-up.
               </p>
             </div>
-            <button onClick={() => void load()} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">
-              Refresh
-            </button>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <label className="relative min-w-0 flex-1 sm:w-72">
+                <span className="sr-only">Search current CRM workspace</span>
+                <Search
+                  size={15}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+                />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={'Search ' + tab + '…'}
+                  className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] pl-9 pr-3 text-sm text-zinc-200 outline-none"
+                />
+              </label>
+              <button
+                onClick={() => void load()}
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5"
+              >
+                Refresh
+              </button>
+            </div>
           </header>
 
           {error ? (
-            <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
               {error}
             </div>
           ) : null}
@@ -292,7 +408,7 @@ export default function CrmPage() {
 
           {tab === 'contacts' ? (
             <ContactPanel
-              contacts={contacts}
+              contacts={visibleContacts}
               busy={busy}
               onSubmit={(event) =>
                 void submit(event, 'contacts', (form) => ({
@@ -307,7 +423,7 @@ export default function CrmPage() {
 
           {tab === 'companies' ? (
             <CompanyPanel
-              companies={companies}
+              companies={visibleCompanies}
               busy={busy}
               onSubmit={(event) =>
                 void submit(event, 'companies', (form) => ({
@@ -337,7 +453,7 @@ export default function CrmPage() {
               />
               <PipelineBoard
                 stages={leadPipeline.stages}
-                records={leads.map((lead) => ({
+                records={visibleLeads.map((lead) => ({
                   id: lead.id,
                   title: lead.title,
                   stageId: lead.stageId,
@@ -367,7 +483,7 @@ export default function CrmPage() {
               />
               <PipelineBoard
                 stages={dealPipeline.stages}
-                records={deals.map((deal) => ({
+                records={visibleDeals.map((deal) => ({
                   id: deal.id,
                   title: deal.name,
                   stageId: deal.stageId,
@@ -382,7 +498,7 @@ export default function CrmPage() {
 
           {tab === 'tasks' ? (
             <TaskPanel
-              tasks={tasks}
+              tasks={visibleTasks}
               deals={deals}
               busy={busy}
               onSubmit={(event) =>
@@ -400,7 +516,7 @@ export default function CrmPage() {
 
           {tab === 'appointments' ? (
             <AppointmentPanel
-              appointments={appointments}
+              appointments={visibleAppointments}
               contacts={contacts}
               deals={deals}
               busy={busy}
@@ -419,7 +535,7 @@ export default function CrmPage() {
 
           {tab === 'activity' ? (
             <ActivityPanel
-              activities={activities}
+              activities={visibleActivities}
               contacts={contacts}
               deals={deals}
               busy={busy}

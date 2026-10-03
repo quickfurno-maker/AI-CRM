@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WorkspaceLoading } from '@/components/workspace-states';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Agent={id:string;key:string;name:string;role:string;status:string;defaultHandlingMode:string};
@@ -40,6 +41,7 @@ export default function AiAgentsPage(){
   const [searchResults,setSearchResults]=useState<SearchResult[]>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [loading,setLoading]=useState(true);
 
   const selectedAgent=agents.find(x=>x.id===selectedAgentId);
   const selectedVersion=versions.find(x=>x.id===selectedVersionId);
@@ -53,7 +55,7 @@ export default function AiAgentsPage(){
       ]);
       setAgents(result[0]);setTools(result[1]);setRuns(result[2]);setApprovals(result[3]);setBases(result[4]);setUsage(result[5]);
       setSelectedAgentId(v=>v??result[0][0]?.id);setSelectedBaseId(v=>v??result[4][0]?.id);setError('');
-    }catch(e){setError(e instanceof Error?e.message:'Unable to load AI control plane.');}
+    }catch(e){setError(e instanceof Error?e.message:'Unable to load AI control plane.');}finally{setLoading(false);}
   },[]);
 
   useEffect(()=>{const id=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(id);},[load]);
@@ -129,6 +131,8 @@ export default function AiAgentsPage(){
 
   const pending=approvals.filter(x=>x.approval.status==='PENDING').length;
 
+  if(loading){return <WorkspaceLoading label="AI Agents" />;}
+
   return <main className="min-h-screen bg-[#07090d] text-zinc-100">
     <div className="mx-auto grid min-h-screen max-w-[1900px] lg:grid-cols-[240px_1fr]">
       <aside className="hidden border-r border-white/10 bg-[#0b0e14] p-5 lg:block">
@@ -149,12 +153,26 @@ export default function AiAgentsPage(){
           <div><div className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Governed OpenAI Runtime</div><h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Agents</h1><p className="mt-2 max-w-3xl text-sm text-zinc-500">Versioned prompts, controlled tools, human approvals, tenant knowledge and usage telemetry.</p></div>
           <button onClick={()=>void load()} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5">Refresh</button>
         </header>
-        {error?<div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div>:null}
+        {error?<div role="alert" className="mt-5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div>:null}
         <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Agents" value={agents.length}/><Metric label="Active" value={agents.filter(x=>x.status==='ACTIVE').length}/><Metric label="Pending approvals" value={pending}/><Metric label="Runs" value={runs.length}/>
         </div>
-        <div className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1">
-          {(['agents','playground','approvals','knowledge','usage'] as Tab[]).map(x=><button key={x} onClick={()=>setTab(x)} className={'rounded-lg px-4 py-2 text-sm capitalize '+(tab===x?'bg-white/10 text-white':'text-zinc-500')}>{x}</button>)}
+        <div
+          className="mt-6 flex gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025] p-1"
+          role="tablist"
+          aria-label="AI control plane views"
+        >
+          {(['agents','playground','approvals','knowledge','usage'] as Tab[]).map(x=>(
+            <button
+              key={x}
+              role="tab"
+              aria-selected={tab===x}
+              onClick={()=>setTab(x)}
+              className={'rounded-lg px-4 py-2 text-sm capitalize '+(tab===x?'bg-white/10 text-white':'text-zinc-500')}
+            >
+              {x}
+            </button>
+          ))}
         </div>
 
         {tab==='agents'?<div className="mt-6 grid gap-5 2xl:grid-cols-[390px_1fr]">
