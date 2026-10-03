@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: UI quality gate
+        run: npm run ui:quality
+
       - name: Tests
         run: npm test
 
