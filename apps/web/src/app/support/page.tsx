@@ -144,6 +144,24 @@ export default function SupportPage() {
     }
   }
 
+  if (error && !tickets) {
+    return (
+      <main className="route-state bg-[#07090d] text-zinc-100">
+        <div className="route-state-card" role="alert">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-red-300">
+            Support Center
+          </div>
+          <h1 className="mt-3 text-xl font-semibold tracking-tight">
+            This workspace could not be loaded.
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            {error}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (!tickets) return <WorkspaceLoading label="Support Center" />;
 
   return (
