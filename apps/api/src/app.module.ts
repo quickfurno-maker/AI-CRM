@@ -18,6 +18,7 @@ import { StaffModule } from './modules/staff/staff.module.js';
 import { SaasCommercialModule } from './modules/saas-commercial/saas-commercial.module.js';
 import { TeamAdminModule } from './modules/team-admin/team-admin.module.js';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module.js';
+import { PlatformExperienceModule } from './modules/platform-experience/platform-experience.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { AuditModule } from './platform/audit/audit.module.js';
 import { AuthModule } from './platform/auth/auth.module.js';
@@ -64,6 +65,7 @@ import { SecurityModule } from './platform/security/security.module.js';
     TeamAdminModule,
     OrganizationsModule,
     PlatformAdminModule,
+    PlatformExperienceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
