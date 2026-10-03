@@ -110,7 +110,7 @@ const groups: NavGroup[] = [
   },
 ];
 
-const publicPrefixes = ['/login', '/register', '/sso'];
+const publicPrefixes = ['/login', '/register', '/sso', '/platform', '/pricing', '/security'];
 
 function routeMatches(pathname: string, href: string) {
   if (href === '/dashboard') return pathname === href;
