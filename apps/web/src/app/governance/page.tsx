@@ -42,7 +42,12 @@ export default function GovernancePage() {
   }
 
   useEffect(() => {
-    void load().catch((reason: Error) => setError(reason.message));
+    const timer = globalThis.setTimeout(() => {
+      void load().catch((reason: Error) =>
+        setError(reason.message),
+      );
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
   }, []);
 
   async function savePolicy(event: FormEvent<HTMLFormElement>) {
