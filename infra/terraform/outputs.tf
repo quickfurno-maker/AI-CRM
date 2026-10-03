@@ -18,6 +18,18 @@ output "worker_service_name" {
   value = aws_ecs_service.worker.name
 }
 
+output "api_task_definition_arn" {
+  value = aws_ecs_task_definition.api.arn
+}
+
+output "web_task_definition_arn" {
+  value = aws_ecs_task_definition.web.arn
+}
+
+output "worker_task_definition_arn" {
+  value = aws_ecs_task_definition.worker.arn
+}
+
 output "migration_task_definition_arn" {
   value = aws_ecs_task_definition.migration.arn
 }
@@ -45,4 +57,8 @@ output "event_queue_url" {
 output "database_secret_arn" {
   value     = aws_secretsmanager_secret.database_url.arn
   sensitive = true
+}
+
+output "alert_topic_arn" {
+  value = aws_sns_topic.alerts.arn
 }
