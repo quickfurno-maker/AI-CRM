@@ -97,6 +97,20 @@ export class RateLimitService implements OnModuleDestroy {
     }
   }
 
+  async checkRedis() {
+    try {
+      if (this.redis.status === 'wait') {
+        await this.redis.connect();
+      }
+      const pong = await this.redis.ping();
+      this.redisHealthy = pong === 'PONG';
+      return this.redisHealthy;
+    } catch {
+      this.redisHealthy = false;
+      return false;
+    }
+  }
+
   health() {
     return {
       enabled: this.enabled(),
