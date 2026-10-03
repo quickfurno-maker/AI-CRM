@@ -214,6 +214,24 @@ export default function ProviderExperiencePage() {
     }
   }
 
+  if (error && (!tickets || !requests)) {
+    return (
+      <main className="route-state bg-[#07090d] text-zinc-100">
+        <div className="route-state-card" role="alert">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-red-300">
+            Provider Experience
+          </div>
+          <h1 className="mt-3 text-xl font-semibold tracking-tight">
+            This workspace could not be loaded.
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            {error}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (!tickets || !requests)
     return <WorkspaceLoading label="Provider Experience" />;
 
