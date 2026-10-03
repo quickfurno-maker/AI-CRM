@@ -10,6 +10,7 @@ Major internal release merges:
 - Phase 10/11 foundation + commercial maturity: **PR #2**
 - Premium UI/UX + flagship public SaaS website: **PR #4**
 - Complete SaaS payment gateway runtime: **PR #5**
+- Final platform hardening (search/onboarding/support/governance/resilience): **PR #6**
 
 Current runtime baseline:
 `fb541c0c785dea3a65a89a70a3b7e072a9a80427`
@@ -25,7 +26,7 @@ CI certification:
 - production dependency audit — PASS
 - real PostgreSQL migrations — PASS
 - migration idempotence — PASS
-- PostgreSQL schema verification — **141 public tables**
+- PostgreSQL schema verification — **147 public tables**
 - pgvector verification — PASS
 - Terraform validation — PASS
 - API/web/worker/migration container builds — PASS
@@ -111,6 +112,8 @@ Tenant:
 - `/staff` — staff directory + product seats
 - `/team` — invitations, roles, teams and access
 - `/subscription` — SaaS plan, add-ons, usage, invoices and receipts
+- `/support` — tenant support center
+- `/governance` — retention, audit evidence and data requests
 - `/developer` — API keys / OAuth / webhooks
 - `/marketplace` — extensions
 - `/enterprise` — enterprise controls
@@ -119,6 +122,7 @@ Provider:
 - `/provider`
 - `/provider/marketplace`
 - `/provider/commercial`
+- `/provider/experience` — support and governance review
 
 ## Real Estate AI tools
 
@@ -175,7 +179,7 @@ npm audit --omit=dev --audit-level=high
 ```
 
 CI also verifies:
-- premium UI/public-site regression requirements
+- premium UI/public-site/platform-experience regression requirements
 - migration execution and idempotence against PostgreSQL + pgvector
 - expected production schema
 - Terraform syntax/provider validation
@@ -213,6 +217,7 @@ See:
 - `docs/architecture/payment-gateway-runtime.md`
 - `docs/architecture/production-launch-runbook.md`
 - `docs/architecture/premium-ui-public-site.md`
+- `docs/architecture/final-platform-hardening.md`
 
 ## Non-negotiable security rule
 
