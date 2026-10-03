@@ -12,3 +12,4 @@ export * from '../../modules/staff/staff.schema.js';
 export * from '../../modules/team-admin/team-admin.schema.js';
 export * from '../../modules/saas-commercial/saas-commercial.schema.js';
 export * from '../../extensions/attendance/attendance.schema.js';
+export * from '../../modules/platform-experience/platform-experience.schema.js';
