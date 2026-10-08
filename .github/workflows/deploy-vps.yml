@@ -2,6 +2,15 @@ name: Deploy Production (VPS)
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: Confirm intentional production VPS deployment.
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
 
 permissions:
   contents: read
@@ -29,6 +38,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${{ inputs.confirm_deploy }}" != "yes" ]]; then
+            echo "Production deployment was not explicitly confirmed." >&2
+            exit 1
+          fi
           if [[ "$GITHUB_REF_NAME" != "main" ]]; then
             echo "Production deployment is allowed only from main." >&2
             exit 1
@@ -73,11 +86,9 @@ jobs:
           test -n "$SSH_KNOWN_HOSTS"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s
-' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s
-' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: Transfer deployment definitions
