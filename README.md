@@ -64,9 +64,10 @@ Staff records are also separate from paid product access:
 - provider-independent AI Gateway; OpenAI is the primary production AI provider
 - Meta WhatsApp Business Platform through client-owned assets and delegated access
 - centralized RBAC, resource scope, entitlements and usage metering
-- Cloudflare + AWS ECS/Fargate production target
-- Terraform/OpenTofu-compatible infrastructure definitions
-- migration-first production deployment with ECS rollback circuit breakers
+- Initial production target: Hostinger-compatible Ubuntu VPS + Supabase PostgreSQL + Cloudflare
+- Dockerized web/API/worker/migration services with private Redis and environment-only provider configuration
+- AWS ECS/Fargate + Terraform/OpenTofu retained as the future scale-up path
+- migration-first VPS deployment with health verification and application rollback
 
 ## Completed build phases
 
@@ -187,24 +188,28 @@ CI also verifies:
 
 ## Production deployment
 
-Production definitions live under:
-- `infra/terraform/`
-- `.github/workflows/deploy-production.yml`
+Initial VPS production definitions live under:
+- `compose.production.yml`
+- `infra/vps/`
+- `scripts/vps/`
+- `.github/workflows/deploy-vps.yml`
 
-The release sequence is intentionally:
+The existing AWS definitions under `infra/terraform/` and `.github/workflows/deploy-production.yml` are retained for future scale migration.
+
+The initial release sequence is intentionally:
 
 ```text
 build immutable images
         ↓
-apply infrastructure
+transfer immutable images to VPS
         ↓
 run migration task
         ↓
 abort on migration failure
         ↓
-update API / web / worker task definitions
+start API / web / worker containers
         ↓
-wait for ECS stability
+verify application health / rollback on failure
         ↓
 health verification
 ```
@@ -212,6 +217,7 @@ health verification
 Keep Meta and AI transport modes disabled until their live-provider certification gates are intentionally executed.
 
 See:
+- `docs/architecture/vps-supabase-production.md`
 - `docs/architecture/phase-10-production-readiness.md`
 - `docs/architecture/phase-11-saas-commercial-operations.md`
 - `docs/architecture/payment-gateway-runtime.md`
