@@ -28,7 +28,12 @@ const databaseUrl =
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16379';
 const eventStream = process.env.EVENT_STREAM ?? 'crm-ai:events';
 
-const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+const pool = new Pool({
+  connectionString: databaseUrl,
+  max: Number(process.env.WORKER_DATABASE_POOL_MAX ?? '4'),
+  idleTimeoutMillis: Number(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS ?? '30000'),
+  connectionTimeoutMillis: Number(process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ?? '5000'),
+});
 const redis = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
   lazyConnect: true,
