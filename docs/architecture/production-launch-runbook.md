@@ -1,3 +1,7 @@
+# Deployment target update
+
+Initial commercial production is now locked to VPS + Supabase + Cloudflare. The AWS material in this document is retained as the future scale-up path. For the initial launch procedure, use docs/architecture/vps-supabase-production.md.
+
 # Production Launch Runbook
 
 ## Purpose
