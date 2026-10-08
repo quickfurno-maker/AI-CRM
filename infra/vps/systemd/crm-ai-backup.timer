@@ -1,0 +1,10 @@
+[Unit]
+Description=Run CRM-AI PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

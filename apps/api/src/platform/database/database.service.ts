@@ -12,9 +12,9 @@ export class DatabaseService implements OnModuleDestroy {
   constructor(config: ConfigService) {
     this.pool = new Pool({
       connectionString: config.getOrThrow<string>('DATABASE_URL'),
-      max: 20,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
+      max: config.get<number>('DATABASE_POOL_MAX', 8),
+      idleTimeoutMillis: config.get<number>('DATABASE_POOL_IDLE_TIMEOUT_MS', 30_000),
+      connectionTimeoutMillis: config.get<number>('DATABASE_POOL_CONNECTION_TIMEOUT_MS', 5_000),
     });
 
     this.db = drizzle(this.pool, { schema });

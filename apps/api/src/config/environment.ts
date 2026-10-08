@@ -24,6 +24,9 @@ const schema = z
       .url()
       .default('postgresql://crm_ai:crm_ai_dev@localhost:15432/crm_ai'),
     REDIS_URL: z.string().url().default('redis://localhost:16379'),
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(8),
+    DATABASE_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(30000),
+    DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(5000),
     JWT_ACCESS_SECRET: z
       .string()
       .min(32)

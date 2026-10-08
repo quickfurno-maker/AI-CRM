@@ -1,0 +1,110 @@
+name: Deploy Production (VPS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      VPS_DEPLOY_PATH: ${{ vars.VPS_DEPLOY_PATH || '/opt/ai-crm' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce main-only immutable deployment
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "Production deployment is allowed only from main." >&2
+            exit 1
+          fi
+          echo "tag=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Release quality gate
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          npm audit --omit=dev --audit-level=high
+
+      - name: Build production images
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker build -f apps/api/Dockerfile -t "crm-ai-api:$TAG" .
+          docker build -f apps/web/Dockerfile -t "crm-ai-web:$TAG" .
+          docker build -f apps/worker/Dockerfile -t "crm-ai-worker:$TAG" .
+          docker build -f apps/api/Dockerfile.migrate -t "crm-ai-migration:$TAG" .
+
+      - name: Configure verified SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s
+' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s
+' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Transfer deployment definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_DEPLOY_PATH'"
+          tar -czf - compose.production.yml scripts/vps infra/vps             | ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "tar -xzf - -C '$VPS_DEPLOY_PATH'"
+          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST"             "chmod +x '$VPS_DEPLOY_PATH'/scripts/vps/*.sh"
+
+      - name: Transfer immutable images
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker save             "crm-ai-api:$TAG"             "crm-ai-web:$TAG"             "crm-ai-worker:$TAG"             "crm-ai-migration:$TAG"             | gzip -1             | ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "gunzip | docker load"
+
+      - name: Migration-first deploy
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST"             "cd '$VPS_DEPLOY_PATH' && DEPLOY_ROOT='$VPS_DEPLOY_PATH' IMAGE_TAG='$TAG' ./scripts/vps/deploy.sh"
+
+      - name: Release summary
+        run: |
+          echo "VPS production release completed."
+          echo "Immutable image tag: ${{ steps.release.outputs.tag }}"

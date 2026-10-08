@@ -1,0 +1,16 @@
+[Unit]
+Description=CRM-AI independent PostgreSQL backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+Environment=DEPLOY_ROOT=/opt/ai-crm
+ExecStart=/opt/ai-crm/scripts/vps/backup-postgres.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
