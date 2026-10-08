@@ -97,6 +97,10 @@ describe('Phase 1 SaaS foundation', () => {
       .sort();
     if (!migrationNames.length) throw new Error('No generated SQL migration found.');
     for (const migrationName of migrationNames) {
+      // Supabase ACL hardening uses PostgreSQL role catalog + PL/pgSQL that pg-mem
+      // does not implement. The real PostgreSQL migration CI job applies and
+      // idempotence-checks this migration; E2E skips only this provider ACL layer.
+      if (migrationName === '0017_supabase_data_api_hardening.sql') continue;
       const migration = readFileSync(resolve(migrationDirectory, migrationName), 'utf8');
       for (const statement of migration.split('--> statement-breakpoint')) {
         const sql = statement.trim();
@@ -186,7 +190,7 @@ describe('Phase 1 SaaS foundation', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) await app.close();
   });
 
   async function register(input: {
