@@ -144,7 +144,7 @@ jobs:
       - name: Validate VPS production compose
         run: |
           cp infra/vps/env.production.example .env.production
-          IMAGE_TAG=ci docker compose -f compose.production.yml config >/dev/null
+          IMAGE_TAG=ci docker compose --env-file .env.production -f compose.production.yml config >/dev/null
           rm .env.production
 
       - name: Build API image
