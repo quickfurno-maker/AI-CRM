@@ -11,11 +11,12 @@ Major internal release merges:
 - Premium UI/UX + flagship public SaaS website: **PR #4**
 - Complete SaaS payment gateway runtime: **PR #5**
 - Final platform hardening (search/onboarding/support/governance/resilience): **PR #6**
+- VPS + Supabase production hardening: **PR #7**
+- VPS manual deployment workflow registration fix: **PR #8**
 
-Current runtime baseline:
-`fb541c0c785dea3a65a89a70a3b7e072a9a80427`
+Production releases use immutable, green `main` commit SHAs rather than a permanently hard-coded runtime SHA.
 
-This baseline includes the hardened production migration image, premium product/public-site release, and the internally complete SaaS payment-gateway runtime. Payment live mode remains disabled by default until production Razorpay merchant credentials and webhook registration are intentionally activated.
+The current baseline includes the hardened production migration image, premium product/public-site release, SaaS payment-gateway runtime, and the certified VPS + Supabase production path. Payment, Meta and AI live modes remain disabled by default until their external production credentials and certification gates are intentionally activated.
 
 CI certification:
 - TypeScript: API / web / worker — PASS
@@ -30,14 +31,19 @@ CI certification:
 - pgvector verification — PASS
 - Terraform validation — PASS
 - API/web/worker/migration container builds — PASS
+- VPS production Compose validation — PASS
+- VPS operations shell syntax gate — PASS
+- Supabase Data API hardening migration on real PostgreSQL — PASS
 
 The remaining launch blockers are **external activation tasks**, not unfinished core-code phases:
-- production AWS + Cloudflare account deployment and restore drill
+- provision the Hostinger-compatible VPS and dedicated Supabase production project
+- configure production DNS, TLS, Cloudflare and origin restrictions
+- install production secrets and GitHub VPS deployment credentials
 - Meta App Review / Advanced Access / real WABA onboarding
 - production OpenAI credentials and live AI/embedding validation
 - live Razorpay merchant credentials, webhook registration and real-money payment/refund certification
 - production invitation-email provider
-- production alert receivers and real incident/rollback exercise
+- production alert receivers, off-VPS backup target and real restore/rollback exercise
 
 ## Product boundaries
 
