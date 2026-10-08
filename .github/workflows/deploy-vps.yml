@@ -2,11 +2,6 @@ name: Deploy Production (VPS)
 
 on:
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: Immutable commit SHA/tag to deploy. Defaults to selected commit SHA.
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -29,14 +24,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve immutable tag
+      - name: Enforce main-only immutable deployment
         id: release
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ inputs.image_tag }}"
-          if [[ -z "$TAG" ]]; then TAG="$GITHUB_SHA"; fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "Production deployment is allowed only from main." >&2
+            exit 1
+          fi
+          echo "tag=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Release quality gate
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          npm audit --omit=dev --audit-level=high
 
       - name: Build production images
         env:
